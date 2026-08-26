@@ -1,0 +1,36 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Permissões mínimas da janela principal para escolher e editar Markdown no diretório do usuário.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-set-webview-zoom",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-set-title",
+    "core:window:allow-start-dragging",
+    "core:window:allow-unmaximize",
+    "dialog:allow-open",
+    "dialog:allow-message",
+    "dialog:allow-save",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-open",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-rename",
+    "fs:allow-stat",
+    "fs:allow-read-text-file",
+    "fs:allow-write",
+    "fs:allow-write-text-file",
+    "fs:allow-appconfig-read",
+    "fs:allow-appconfig-write",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "http://*" }, { "url": "https://*" }, { "url": "mailto:*" }]
+    }
+  ]
+}
