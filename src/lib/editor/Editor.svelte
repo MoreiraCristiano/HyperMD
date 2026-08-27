@@ -155,18 +155,35 @@
           'aria-label': 'Markdown editor',
         },
         handlePaste(view, event) {
+          if (event.target instanceof Element && event.target.closest('.cm-editor')) return false;
+          const clipboard = event.clipboardData;
           const item = Array.from(event.clipboardData?.items ?? []).find(
             (candidate) => candidate.kind === 'file' && isSupportedImageMime(candidate.type),
           );
           const blob = item?.getAsFile();
-          if (!blob || !onImagePaste) return false;
-          event.preventDefault();
-          const selection = {
-            anchor: view.state.selection.anchor,
-            head: view.state.selection.head,
-          };
-          void onImagePaste(blob, selection);
-          return true;
+          if (blob && onImagePaste) {
+            event.preventDefault();
+            const selection = {
+              anchor: view.state.selection.anchor,
+              head: view.state.selection.head,
+            };
+            void onImagePaste(blob, selection);
+            return true;
+          }
+
+          if (!clipboard || clipboard.getData('text/html').includes('data-pm-slice')) return false;
+          const markdown = clipboard.getData('text/plain');
+          if (!markdown) return false;
+          try {
+            const inserted =
+              editorInstance?.commands.insertContent(markdown, { contentType: 'markdown' }) ??
+              false;
+            if (inserted) event.preventDefault();
+            return inserted;
+          } catch (error) {
+            console.warn('Could not parse pasted Markdown.', error);
+            return false;
+          }
         },
       },
       onTransaction: ({ editor: currentEditor, transaction }) => {
@@ -200,12 +217,8 @@
       if (command === 'selectAll') return editor.chain().focus().selectAll().run();
       if (command === 'paste') {
         const text = await navigator.clipboard.readText();
-        const escaped = text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/\r?\n/g, '<br>');
-        return editor.chain().focus().insertContent(escaped).run();
+        if (!text) return false;
+        return editor.chain().focus().insertContent(text, { contentType: 'markdown' }).run();
       }
 
       const { from, to } = editor.state.selection;
