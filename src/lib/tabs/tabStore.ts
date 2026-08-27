@@ -7,6 +7,7 @@ type BaseTab = {
   path: string | null;
   name: string;
   type: 'markdown' | 'image' | 'settings' | 'shortcuts';
+  pinned: boolean;
   dirty: boolean;
   missing: boolean;
 };

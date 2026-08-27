@@ -5,10 +5,28 @@
   type Props = {
     tab: EditorTab;
     active: boolean;
+    dragging: boolean;
+    dropPosition: 'before' | 'after' | null;
+    onDragStart: (tab: EditorTab, event: DragEvent) => void;
+    onDragEnd: () => void;
+    onDragOver: (tab: EditorTab, event: DragEvent) => void;
+    onDrop: (tab: EditorTab, event: DragEvent) => void;
+    onContextMenu: (tab: EditorTab, event: MouseEvent) => void;
     onError: (message: string) => void;
   };
 
-  let { tab, active, onError }: Props = $props();
+  let {
+    tab,
+    active,
+    dragging,
+    dropPosition,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDrop,
+    onContextMenu,
+    onError,
+  }: Props = $props();
   let element: HTMLDivElement;
 
   $effect(() => {
@@ -28,7 +46,17 @@
   class="tab-item"
   class:active
   class:missing={tab.missing}
+  class:pinned={tab.pinned}
+  class:dragging
+  class:drop-before={dropPosition === 'before'}
+  class:drop-after={dropPosition === 'after'}
+  draggable="true"
   onclick={() => documentManager.activate(tab.id)}
+  ondragstart={(event) => onDragStart(tab, event)}
+  ondragend={onDragEnd}
+  ondragover={(event) => onDragOver(tab, event)}
+  ondrop={(event) => onDrop(tab, event)}
+  oncontextmenu={(event) => onContextMenu(tab, event)}
   onkeydown={(event) => {
     if (event.key === 'Enter' || event.key === ' ') documentManager.activate(tab.id);
   }}
@@ -36,7 +64,7 @@
   onauxclick={(event) => {
     if (event.button === 1) close(event);
   }}
-  title={`${tab.path ?? tab.name}${tab.missing ? ' — missing file' : ''}`}
+  title={`${tab.path ?? tab.name}${tab.pinned ? ' — pinned' : ''}${tab.missing ? ' — missing file' : ''}`}
   role="tab"
   aria-selected={active}
   tabindex={active ? 0 : -1}
@@ -58,10 +86,23 @@
       <path d="M4 6h1m2 0h1m2 0h1M4 9h1m2 0h1m2 0h1M5 11h6" />
     </svg>
   {/if}
+  {#if tab.pinned}
+    <svg class="tab-pin" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m5 2 6 2-1.5 2.2.8 2.8-2.2 2.2-2.8-.8L3 11l2-2-1-4zM8 10l-3 4" />
+    </svg>
+  {/if}
   <span class="tab-name">{tab.name}</span>
   {#if tab.missing}<span class="tab-missing" title="Missing file">!</span>{/if}
   {#if tab.dirty}<span class="tab-dirty" title="Unsaved changes">●</span>{/if}
-  <button class="tab-close" onclick={close} title="Close" aria-label={`Close ${tab.name}`}>
-    <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
-  </button>
+  {#if !tab.pinned}
+    <button
+      class="tab-close"
+      draggable="false"
+      onclick={close}
+      title="Close"
+      aria-label={`Close ${tab.name}`}
+    >
+      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
+    </button>
+  {/if}
 </div>

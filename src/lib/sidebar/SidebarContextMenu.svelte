@@ -1,22 +1,24 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
 
-  export type SidebarContextMenuItem = {
+  export type ContextMenuItem = {
     id: string;
     label: string;
     danger?: boolean;
     separatorBefore?: boolean;
   };
+  export type SidebarContextMenuItem = ContextMenuItem;
 
   type Props = {
     x: number;
     y: number;
-    items: readonly SidebarContextMenuItem[];
+    items: readonly ContextMenuItem[];
+    ariaLabel?: string;
     onSelect: (id: string) => void;
     onClose: () => void;
   };
 
-  let { x, y, items, onSelect, onClose }: Props = $props();
+  let { x, y, items, ariaLabel = 'Context actions', onSelect, onClose }: Props = $props();
   let panel = $state<HTMLDivElement>();
   let left = $state(0);
   let top = $state(0);
@@ -100,7 +102,7 @@
   style:top={`${top}px`}
   style:visibility={positioned ? 'visible' : 'hidden'}
   role="menu"
-  aria-label="Explorer actions"
+  aria-label={ariaLabel}
 >
   {#each items as item, index (item.id)}
     {#if item.separatorBefore}<div class="context-menu-separator" role="separator"></div>{/if}

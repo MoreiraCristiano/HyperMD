@@ -22,6 +22,7 @@ type PersistedTab = {
   path: string | null;
   name: string;
   type?: 'markdown' | 'image';
+  pinned?: boolean;
   content?: string;
   savedContent?: string;
   dirty: boolean;
@@ -91,6 +92,7 @@ class DocumentManager {
       path: null,
       name: this.untitledIndex === 1 ? 'Untitled.md' : `Untitled ${this.untitledIndex}.md`,
       type: 'markdown',
+      pinned: false,
       state,
       savedDoc: state.doc,
       dirty: false,
@@ -117,6 +119,7 @@ class DocumentManager {
       path: null,
       name: 'Settings',
       type: 'settings',
+      pinned: false,
       dirty: false,
       missing: false,
     };
@@ -137,6 +140,7 @@ class DocumentManager {
       path: null,
       name: 'Keyboard Shortcuts',
       type: 'shortcuts',
+      pinned: false,
       dirty: false,
       missing: false,
     };
@@ -164,6 +168,7 @@ class DocumentManager {
       path,
       name: fileName(path),
       type: 'markdown',
+      pinned: false,
       state,
       savedDoc: state.doc,
       dirty: false,
@@ -183,6 +188,7 @@ class DocumentManager {
       path: validatedPath,
       name: fileName(validatedPath),
       type: 'image',
+      pinned: false,
       dirty: false,
       missing: false,
     };
@@ -204,6 +210,45 @@ class DocumentManager {
       this.editor.setState(tab.state);
       this.editor.focus();
     }
+  }
+
+  reorderTab(id: string, targetId: string, position: 'before' | 'after'): boolean {
+    if (id === targetId) return false;
+    const snapshot = get(tabsState);
+    const source = snapshot.tabs.find((tab) => tab.id === id);
+    const target = snapshot.tabs.find((tab) => tab.id === targetId);
+    if (!source || !target || source.pinned !== target.pinned) return false;
+
+    const tabs = snapshot.tabs.filter((tab) => tab.id !== id);
+    const targetIndex = tabs.findIndex((tab) => tab.id === targetId);
+    if (targetIndex === -1) return false;
+    tabs.splice(targetIndex + (position === 'after' ? 1 : 0), 0, source);
+    this.publish({ ...snapshot, tabs });
+    return true;
+  }
+
+  moveTabToGroupEnd(id: string): boolean {
+    const snapshot = get(tabsState);
+    const source = snapshot.tabs.find((tab) => tab.id === id);
+    if (!source) return false;
+    const tabs = snapshot.tabs.filter((tab) => tab.id !== id);
+    const insertionIndex = source.pinned ? tabs.findIndex((tab) => !tab.pinned) : tabs.length;
+    tabs.splice(insertionIndex === -1 ? tabs.length : insertionIndex, 0, source);
+    this.publish({ ...snapshot, tabs });
+    return true;
+  }
+
+  setTabPinned(id: string, pinned: boolean): boolean {
+    const snapshot = get(tabsState);
+    const source = snapshot.tabs.find((tab) => tab.id === id);
+    if (!source || source.pinned === pinned) return false;
+    const tabs = snapshot.tabs.filter((tab) => tab.id !== id);
+    source.pinned = pinned;
+    const firstUnpinned = tabs.findIndex((tab) => !tab.pinned);
+    const insertionIndex = firstUnpinned === -1 ? tabs.length : firstUnpinned;
+    tabs.splice(insertionIndex, 0, source);
+    this.publish({ ...snapshot, tabs });
+    return true;
   }
 
   handleTransaction(state: EditorState, docChanged: boolean): void {
@@ -452,6 +497,7 @@ class DocumentManager {
               path: stored.path,
               name: stored.name || fileName(stored.path),
               type: 'image',
+              pinned: Boolean(stored.pinned),
               dirty: false,
               missing: Boolean(stored.missing),
             },
@@ -470,6 +516,7 @@ class DocumentManager {
                 ? translateLegacyUntitledName(stored.name)
                 : stored.name || fileName(stored.path),
             type: 'markdown',
+            pinned: Boolean(stored.pinned),
             state,
             savedDoc,
             dirty: Boolean(stored.dirty),
@@ -478,6 +525,7 @@ class DocumentManager {
         ];
       });
       if (tabs.length === 0) return false;
+      tabs.sort((left, right) => Number(right.pinned) - Number(left.pinned));
       const activeId = tabs.some((tab) => tab.id === session.activeId)
         ? session.activeId
         : tabs[0].id;
@@ -549,6 +597,7 @@ class DocumentManager {
                 path: tab.path,
                 name: tab.name,
                 type: tab.type,
+                pinned: tab.pinned,
                 content: this.editor!.serializeState(tab.state),
                 savedContent: this.editor!.serializeNode(tab.savedDoc),
                 dirty: tab.dirty,
@@ -562,6 +611,7 @@ class DocumentManager {
                 path: tab.path,
                 name: tab.name,
                 type: tab.type,
+                pinned: tab.pinned,
                 dirty: false,
                 missing: tab.missing,
               },
