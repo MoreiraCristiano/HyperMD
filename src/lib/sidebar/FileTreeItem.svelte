@@ -11,6 +11,7 @@
     onOpenFile: (node: FileNode) => void;
     onSelectDirectory: (node: FileNode) => void;
     onSelectFile: (node: FileNode) => void;
+    onContextMenu: (node: FileNode, event: MouseEvent) => void;
   };
 
   let {
@@ -22,6 +23,7 @@
     onOpenFile,
     onSelectDirectory,
     onSelectFile,
+    onContextMenu,
   }: Props = $props();
 
   function activate() {
@@ -41,6 +43,11 @@
   class:selected={selectedPath === node.path}
   style:padding-left={`${7 + level * 13}px`}
   onclick={activate}
+  oncontextmenu={(event) => {
+    event.preventDefault();
+    event.currentTarget.focus();
+    onContextMenu(node, event);
+  }}
   title={node.path}
   role="treeitem"
   aria-selected={activePath === node.path}
@@ -81,5 +88,6 @@
     {onOpenFile}
     {onSelectDirectory}
     {onSelectFile}
+    {onContextMenu}
   />
 {/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import FileTree from './FileTree.svelte';
+  import SidebarContextMenu, { type SidebarContextMenuItem } from './SidebarContextMenu.svelte';
   import { dialogService } from '../dialogs/dialogStore';
   import {
     sidebarActions,
@@ -28,6 +29,33 @@
     onError: (message: string) => void;
   };
 
+  type ContextMenuState = {
+    id: number;
+    x: number;
+    y: number;
+    node: FileNode | null;
+  };
+
+  const fileContextItems: readonly SidebarContextMenuItem[] = [
+    { id: 'open', label: 'Open' },
+    { id: 'rename', label: 'Rename', separatorBefore: true },
+    { id: 'move', label: 'Move' },
+    { id: 'delete', label: 'Delete', danger: true },
+  ];
+  const folderContextItems: readonly SidebarContextMenuItem[] = [
+    { id: 'new-file', label: 'New File' },
+    { id: 'new-folder', label: 'New Folder' },
+    { id: 'rename', label: 'Rename', separatorBefore: true },
+    { id: 'move', label: 'Move' },
+    { id: 'delete', label: 'Delete', danger: true },
+    { id: 'refresh', label: 'Refresh', separatorBefore: true },
+  ];
+  const rootContextItems: readonly SidebarContextMenuItem[] = [
+    { id: 'new-file', label: 'New File' },
+    { id: 'new-folder', label: 'New Folder' },
+    { id: 'refresh', label: 'Refresh', separatorBefore: true },
+  ];
+
   let { activePath, onOpenFile, onBeforeDelete, onDeleted, onRenamed, onError }: Props = $props();
   let entries = $state<FileNode[]>([]);
   let selectedNode = $state<FileNode | null>(null);
@@ -36,6 +64,8 @@
   let handledWorkspaceRequest = 0;
   let loadedWorkspacePath: string | null = null;
   let handledRefreshRequest = 0;
+  let contextMenu = $state<ContextMenuState | null>(null);
+  let contextMenuId = 0;
 
   async function run(action: () => Promise<void>) {
     try {
@@ -232,6 +262,56 @@
     void onOpenFile(node.path);
   }
 
+  function openNodeContextMenu(node: FileNode, event: MouseEvent) {
+    if (node.isDirectory) selectDirectory(node);
+    else selectFile(node);
+    contextMenu = {
+      id: ++contextMenuId,
+      x: event.clientX,
+      y: event.clientY,
+      node,
+    };
+  }
+
+  function openRootContextMenu(event: MouseEvent) {
+    const target = event.target;
+    if (target instanceof Element && target.closest('.tree-item, .sidebar-context-menu')) {
+      return;
+    }
+    const root = $sidebarState.workspacePath;
+    if (!root) return;
+    event.preventDefault();
+    target instanceof Element && target.closest<HTMLElement>('button')?.focus();
+    selectedNode = null;
+    selectedDirectory = root;
+    contextMenu = {
+      id: ++contextMenuId,
+      x: event.clientX,
+      y: event.clientY,
+      node: null,
+    };
+  }
+
+  function contextItems(node: FileNode | null): readonly SidebarContextMenuItem[] {
+    if (!node) return rootContextItems;
+    return node.isDirectory ? folderContextItems : fileContextItems;
+  }
+
+  async function executeContextAction(action: string) {
+    const target = contextMenu?.node ?? null;
+    contextMenu = null;
+    if (action === 'open' && target && !target.isDirectory) openFile(target);
+    else if (action === 'new-file') await createFile();
+    else if (action === 'new-folder') await createFolder();
+    else if (action === 'rename') await renameSelected();
+    else if (action === 'move') await moveSelected();
+    else if (action === 'delete') await deleteSelected();
+    else if (action === 'refresh') {
+      if (target?.isDirectory) await refreshDirectory(target.path);
+      else await loadRoot();
+    }
+  }
+
   function refresh() {
     void loadRoot();
   }
@@ -257,61 +337,73 @@
     loadedWorkspacePath = path;
     selectedDirectory = path;
     selectedNode = null;
+    contextMenu = null;
     entries = [];
     if (path) void loadRoot();
   });
 </script>
 
-<header class="sidebar-title">EXPLORER</header>
+<div
+  class="explorer-content"
+  role="region"
+  aria-label="Explorer"
+  oncontextmenu={openRootContextMenu}
+>
+  <header class="sidebar-title">EXPLORER</header>
 
-{#if !$sidebarState.workspacePath}
-  <div class="empty-workspace">
-    <p>No folder open.</p>
-    <button onclick={selectWorkspace}>Open Folder</button>
-  </div>
-{:else}
-  <div class="explorer-heading">
-    <button
-      class="workspace-label"
-      onclick={() => {
-        selectedDirectory = $sidebarState.workspacePath;
-        selectedNode = null;
-      }}
-      title={$sidebarState.workspacePath}
-    >
-      {$sidebarState.workspaceName}
-    </button>
-    <div class="explorer-actions">
-      <button onclick={createFile} title="New Markdown file" aria-label="New file">
-        <svg viewBox="0 0 16 16"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4M8 8v4M6 10h4" /></svg>
-      </button>
-      <button onclick={createFolder} title="New folder" aria-label="New folder">
-        <svg viewBox="0 0 16 16"><path d="M1.5 3.5h5l1.5 2h6.5v7h-13zM8 7v4M6 9h4" /></svg>
-      </button>
-      <button onclick={renameSelected} disabled={!selectedNode} title="Rename" aria-label="Rename">
-        <svg viewBox="0 0 16 16"><path d="m3 11 8-8 2 2-8 8-3 1zM9.5 4.5l2 2" /></svg>
-      </button>
-      <button onclick={moveSelected} disabled={!selectedNode} title="Move" aria-label="Move">
-        <svg viewBox="0 0 16 16"><path d="M1.5 4h5l1.5 2h6.5v6.5h-13zM6 9h5M9 7l2 2-2 2" /></svg>
-      </button>
-      <button onclick={deleteSelected} disabled={!selectedNode} title="Delete" aria-label="Delete">
-        <svg viewBox="0 0 16 16"><path d="M3 4h10M6 2h4l1 2H5zM5 6v7h6V6M7 7v4M9 7v4" /></svg>
-      </button>
-      <button onclick={refresh} title="Refresh" aria-label="Refresh">
-        <svg viewBox="0 0 16 16"><path d="M13 5V2l-1.3 1.3A5.5 5.5 0 1 0 13 9M13 2H9" /></svg>
-      </button>
+  {#if !$sidebarState.workspacePath}
+    <div class="empty-workspace">
+      <p>No folder open.</p>
+      <button onclick={selectWorkspace}>Open Folder</button>
     </div>
-  </div>
-  <div class="explorer-tree" class:loading>
-    <FileTree
-      nodes={entries}
-      {activePath}
-      selectedPath={selectedNode?.path ?? null}
-      onToggle={(node) => void toggleDirectory(node)}
-      onOpenFile={openFile}
-      onSelectDirectory={selectDirectory}
-      onSelectFile={selectFile}
-    />
-  </div>
-  <button class="change-workspace" onclick={selectWorkspace}>Open Another Folder…</button>
-{/if}
+  {:else}
+    <div class="explorer-heading">
+      <button
+        class="workspace-label"
+        onclick={() => {
+          selectedDirectory = $sidebarState.workspacePath;
+          selectedNode = null;
+        }}
+        title={$sidebarState.workspacePath}
+      >
+        {$sidebarState.workspaceName}
+      </button>
+      <div class="explorer-actions">
+        <button onclick={createFile} title="New Markdown file" aria-label="New file">
+          <svg viewBox="0 0 16 16"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4M8 8v4M6 10h4" /></svg>
+        </button>
+        <button onclick={createFolder} title="New folder" aria-label="New folder">
+          <svg viewBox="0 0 16 16"><path d="M1.5 3.5h5l1.5 2h6.5v7h-13zM8 7v4M6 9h4" /></svg>
+        </button>
+        <button onclick={refresh} title="Refresh" aria-label="Refresh">
+          <svg viewBox="0 0 16 16"><path d="M13 5V2l-1.3 1.3A5.5 5.5 0 1 0 13 9M13 2H9" /></svg>
+        </button>
+      </div>
+    </div>
+    <div class="explorer-tree" class:loading>
+      <FileTree
+        nodes={entries}
+        {activePath}
+        selectedPath={selectedNode?.path ?? null}
+        onToggle={(node) => void toggleDirectory(node)}
+        onOpenFile={openFile}
+        onSelectDirectory={selectDirectory}
+        onSelectFile={selectFile}
+        onContextMenu={openNodeContextMenu}
+      />
+    </div>
+    <button class="change-workspace" onclick={selectWorkspace}>Open Another Folder…</button>
+  {/if}
+
+  {#if contextMenu}
+    {#key contextMenu.id}
+      <SidebarContextMenu
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextItems(contextMenu.node)}
+        onSelect={(action) => void executeContextAction(action)}
+        onClose={() => (contextMenu = null)}
+      />
+    {/key}
+  {/if}
+</div>

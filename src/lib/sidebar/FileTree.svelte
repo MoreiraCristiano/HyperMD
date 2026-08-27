@@ -11,6 +11,7 @@
     onOpenFile: (node: FileNode) => void;
     onSelectDirectory: (node: FileNode) => void;
     onSelectFile: (node: FileNode) => void;
+    onContextMenu: (node: FileNode, event: MouseEvent) => void;
   };
 
   let {
@@ -22,6 +23,7 @@
     onOpenFile,
     onSelectDirectory,
     onSelectFile,
+    onContextMenu,
   }: Props = $props();
 </script>
 
@@ -36,6 +38,7 @@
       {onOpenFile}
       {onSelectDirectory}
       {onSelectFile}
+      {onContextMenu}
     />
   {/each}
 </div>
