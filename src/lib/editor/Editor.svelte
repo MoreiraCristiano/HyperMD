@@ -9,6 +9,7 @@
   import { DocumentFind, clearFind, findText, moveFindMatch } from './find/findPlugin';
   import { MarkdownImage, refreshRenderedImages } from './extensions/image';
   import { CodeMirrorCodeBlock } from './extensions/codeBlock';
+  import { ListKeyboard } from './extensions/listKeyboard';
   import { isSupportedImageMime } from './imageImport';
   import { sidebarState } from '../sidebar/sidebarStore';
   import type { EditorApi, EditorCommand, StoredSelection } from './editorTypes';
@@ -76,6 +77,7 @@
         }),
         TaskList,
         TaskItem.configure({ nested: true }),
+        ListKeyboard,
         CodeMirrorCodeBlock,
         MarkdownImage,
         MarkdownSupport,
