@@ -52,6 +52,11 @@
         d="M12.7 8a5 5 0 0 0-.1-1l1.2-.9-1.2-2-1.4.6a5 5 0 0 0-1-.6L10 2.5H7.7l-.2 1.6a5 5 0 0 0-1 .6l-1.4-.6-1.2 2 1.2.9a5 5 0 0 0 0 2l-1.2.9 1.2 2 1.4-.6a5 5 0 0 0 1 .6l.2 1.6H10l.2-1.6a5 5 0 0 0 1-.6l1.4.6 1.2-2-1.2-.9a5 5 0 0 0 .1-1z"
       />
     </svg>
+  {:else if tab.type === 'shortcuts'}
+    <svg class="tab-type-icon shortcuts" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+      <path d="M4 6h1m2 0h1m2 0h1M4 9h1m2 0h1m2 0h1M5 11h6" />
+    </svg>
   {/if}
   <span class="tab-name">{tab.name}</span>
   {#if tab.missing}<span class="tab-missing" title="Arquivo ausente">!</span>{/if}

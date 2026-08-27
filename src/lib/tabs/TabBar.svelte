@@ -16,6 +16,7 @@
 <div
   class="tab-bar"
   bind:this={scroller}
+  data-tauri-drag-region
   onwheel={horizontalWheel}
   role="tablist"
   aria-label="Arquivos abertos"

@@ -6,7 +6,7 @@ type BaseTab = {
   id: string;
   path: string | null;
   name: string;
-  type: 'markdown' | 'image' | 'settings';
+  type: 'markdown' | 'image' | 'settings' | 'shortcuts';
   dirty: boolean;
   missing: boolean;
 };
@@ -30,7 +30,14 @@ export type SettingsTab = BaseTab & {
   missing: false;
 };
 
-export type EditorTab = MarkdownTab | ImageTab | SettingsTab;
+export type ShortcutsTab = BaseTab & {
+  type: 'shortcuts';
+  path: null;
+  dirty: false;
+  missing: false;
+};
+
+export type EditorTab = MarkdownTab | ImageTab | SettingsTab | ShortcutsTab;
 
 export function isMarkdownTab(tab: EditorTab): tab is MarkdownTab {
   return tab.type === 'markdown';

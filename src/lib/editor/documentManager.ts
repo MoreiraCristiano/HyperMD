@@ -118,6 +118,26 @@ class DocumentManager {
     return tab.id;
   }
 
+  openShortcuts(): string | null {
+    if (!this.editor) return null;
+    const snapshot = get(tabsState);
+    const existing = snapshot.tabs.find((tab) => tab.type === 'shortcuts');
+    if (existing) {
+      this.activate(existing.id);
+      return existing.id;
+    }
+    const tab: EditorTab = {
+      id: 'hypermd:keyboard-shortcuts',
+      path: null,
+      name: 'Keyboard Shortcuts',
+      type: 'shortcuts',
+      dirty: false,
+      missing: false,
+    };
+    this.publish({ ...snapshot, tabs: [...snapshot.tabs, tab], activeId: tab.id });
+    return tab.id;
+  }
+
   async open(path: string): Promise<boolean> {
     if (!this.editor) return false;
     const existing = get(tabsState).tabs.find(
@@ -507,7 +527,7 @@ class DocumentManager {
     const session: PersistedSession = {
       activeId: snapshot.activeId,
       tabs: snapshot.tabs.flatMap((tab): PersistedTab[] => {
-        if (tab.type === 'settings') return [];
+        if (tab.type === 'settings' || tab.type === 'shortcuts') return [];
         return isMarkdownTab(tab)
           ? [
               {
