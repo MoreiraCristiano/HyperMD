@@ -23,10 +23,12 @@
   import KeyboardShortcutsView from './lib/shortcuts/KeyboardShortcutsView.svelte';
   import DialogHost from './lib/dialogs/DialogHost.svelte';
   import { dialogState } from './lib/dialogs/dialogStore';
+  import TablePicker from './lib/editor/TablePicker.svelte';
 
   let busy = $state(false);
   let error = $state<string | null>(null);
   let commandPaletteOpen = $state(false);
+  let tablePickerOpen = $state(false);
   let lastTitle = '';
 
   async function updateTitle() {
@@ -100,7 +102,11 @@
   function commandEnabled(id: AppCommandId): boolean {
     const command = appCommands.find((candidate) => candidate.id === id);
     const tab = get(activeTab);
-    if (command?.context === 'markdown') return tab?.type === 'markdown';
+    if (command?.context === 'markdown') {
+      if (tab?.type !== 'markdown') return false;
+      if (id === 'insert.table') return documentManager.canInsertTable();
+      return true;
+    }
     if (command?.context === 'activeTab') return Boolean(tab);
     return true;
   }
@@ -122,6 +128,7 @@
       else if (id === 'edit.paste') await documentManager.execute('paste');
       else if (id === 'edit.selectAll') await documentManager.execute('selectAll');
       else if (id === 'edit.find') documentManager.openFind();
+      else if (id === 'insert.table') tablePickerOpen = true;
       else if (id === 'tabs.next') documentManager.activateRelative(1);
       else if (id === 'tabs.previous') documentManager.activateRelative(-1);
       else if (id === 'view.toggleSidebar') sidebarActions.toggle();
@@ -141,7 +148,7 @@
     if (!command) return;
     const key = event.key.toLowerCase();
 
-    if (get(dialogState)) {
+    if (get(dialogState) || tablePickerOpen) {
       if (['b', 'f', 'n', 'o', 'p', 's', 'tab', 'w'].includes(key)) event.preventDefault();
       return;
     }
@@ -273,6 +280,16 @@
     isEnabled={commandEnabled}
     onExecute={executeCommand}
     onClose={() => (commandPaletteOpen = false)}
+  />
+  <TablePicker
+    open={tablePickerOpen}
+    onSelect={(rows, columns) => {
+      tablePickerOpen = false;
+      if (!documentManager.insertTable(rows, columns)) {
+        showError('A table cannot be inserted at the current selection.');
+      }
+    }}
+    onClose={() => (tablePickerOpen = false)}
   />
   <DialogHost />
 </div>

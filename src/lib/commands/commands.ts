@@ -15,6 +15,7 @@ export type AppCommandId =
   | 'edit.paste'
   | 'edit.selectAll'
   | 'edit.find'
+  | 'insert.table'
   | 'tabs.next'
   | 'tabs.previous'
   | 'view.toggleSidebar'
@@ -152,6 +153,14 @@ export const appCommands: readonly AppCommand[] = [
     description: 'Search inside the active Markdown document.',
     shortcuts: ['Ctrl+F'],
     keywords: ['search'],
+    context: 'markdown',
+  },
+  {
+    id: 'insert.table',
+    category: 'Insert',
+    label: 'Insert Table',
+    description: 'Choose dimensions and insert a Markdown table.',
+    keywords: ['grid', 'rows', 'columns', 'markdown'],
     context: 'markdown',
   },
   {

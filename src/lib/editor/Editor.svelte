@@ -8,6 +8,11 @@
   import { MarkdownSupport } from './markdown';
   import { DocumentFind, clearFind, findText, moveFindMatch } from './find/findPlugin';
   import { MarkdownImage, refreshRenderedImages } from './extensions/image';
+  import {
+    canInsertMarkdownTable,
+    createMarkdownTableExtensions,
+    insertMarkdownTable,
+  } from './extensions/table';
   import { CodeMirrorCodeBlock } from './extensions/codeBlock';
   import { ListKeyboard } from './extensions/listKeyboard';
   import { BlockMovement } from './extensions/blockMovement';
@@ -145,6 +150,7 @@
         BlockMovement,
         CodeMirrorCodeBlock,
         MarkdownImage,
+        ...createMarkdownTableExtensions(),
         MarkdownSupport,
         DocumentFind,
       ],
@@ -266,6 +272,8 @@
       serializeState: (state) => markdownManager.serialize(state.doc.toJSON()),
       serializeNode: (node) => markdownManager.serialize(node.toJSON()),
       execute,
+      canInsertTable: () => canInsertMarkdownTable(editor),
+      insertTable: (rows, columns) => insertMarkdownTable(editor, rows, columns),
       insertImage: (src, alt, selection) => {
         editor.view.dispatch(transactionWithImage(editor.state, src, alt, selection));
         editor.commands.focus();

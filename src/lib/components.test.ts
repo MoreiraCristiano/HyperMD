@@ -12,6 +12,7 @@ import { settingsActions, settingsStore } from './settings/settingsStore';
 import KeyboardShortcutsView from './shortcuts/KeyboardShortcutsView.svelte';
 import { sidebarState } from './sidebar/sidebarStore';
 import WindowControls from './titlebar/WindowControls.svelte';
+import TablePicker from './editor/TablePicker.svelte';
 
 describe('front-end components', () => {
   beforeEach(() => {
@@ -60,6 +61,31 @@ describe('front-end components', () => {
     await fireEvent.keyDown(search, { key: 'Enter' });
     expect(onExecute).toHaveBeenCalled();
     expect(screen.getByRole('option', { name: /New File/ })).toBeDisabled();
+  });
+
+  it('selects table dimensions with pointer and keyboard', async () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    const view = render(TablePicker, { open: true, onSelect, onClose });
+    const fourByThree = screen.getByRole('gridcell', { name: '3 columns by 4 rows' });
+    await fireEvent.mouseEnter(fourByThree);
+    expect(screen.getByText('3 columns × 4 rows')).toBeInTheDocument();
+    expect(view.container.querySelectorAll('.table-picker-grid .highlighted')).toHaveLength(12);
+    await fireEvent.click(fourByThree);
+    expect(onSelect).toHaveBeenCalledWith(4, 3);
+
+    const first = screen.getByRole('gridcell', { name: '1 column by 1 row' });
+    first.focus();
+    await fireEvent.keyDown(first, { key: 'ArrowRight' });
+    await fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    await fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+    expect(onSelect).toHaveBeenLastCalledWith(2, 2);
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+
+    const backdrop = view.container.querySelector('.table-picker-backdrop')!;
+    await fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it('renders dialogs, validates required prompts, and restores queue order', async () => {

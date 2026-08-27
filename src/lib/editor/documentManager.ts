@@ -440,6 +440,18 @@ export class DocumentManager {
     return this.editor.execute(command);
   }
 
+  canInsertTable(): boolean {
+    if (!this.editor) return false;
+    const snapshot = get(tabsState);
+    const tab = snapshot.tabs.find((candidate) => candidate.id === snapshot.activeId);
+    return Boolean(tab && isMarkdownTab(tab) && this.editor.canInsertTable());
+  }
+
+  insertTable(rows: number, columns: number): boolean {
+    if (!this.canInsertTable() || !this.editor) return false;
+    return this.editor.insertTable(rows, columns);
+  }
+
   openFind(): boolean {
     if (!this.editor) return false;
     const snapshot = get(tabsState);

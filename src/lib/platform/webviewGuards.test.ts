@@ -8,6 +8,7 @@ describe('webview guards', () => {
     for (const init of [
       { key: 'F5' },
       { key: 'r', ctrlKey: true },
+      { key: 'p', ctrlKey: true },
       { key: '+', ctrlKey: true },
       { key: 'ArrowLeft', altKey: true },
       { key: 'Backspace' },
@@ -106,6 +107,7 @@ describe('webview guards', () => {
     for (const init of [
       { key: 'ArrowRight', altKey: true },
       { key: 'x', ctrlKey: true },
+      { key: 'p', ctrlKey: true, shiftKey: true },
       { key: 'Backspace' },
     ]) {
       const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });

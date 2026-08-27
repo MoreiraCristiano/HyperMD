@@ -22,6 +22,7 @@ describe('core rules', () => {
     expect(filterCommands('')).toBe(appCommands);
     expect(filterCommands('open markdown').map(({ id }) => id)).toContain('file.open');
     expect(filterCommands('FILES workspace').map(({ id }) => id)).toContain('view.explorer');
+    expect(filterCommands('table columns').map(({ id }) => id)).toContain('insert.table');
     expect(filterCommands('not-present')).toEqual([]);
     expect(shortcutEntries.some(({ shortcut }) => shortcut === 'Ctrl+Shift+P')).toBe(true);
   });

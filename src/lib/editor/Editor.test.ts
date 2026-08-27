@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorApi } from './editorTypes';
 import Editor from './Editor.svelte';
+import { findTableContext } from './extensions/table';
 
 describe('Editor', () => {
   const readText = vi.fn();
@@ -77,6 +78,25 @@ describe('Editor', () => {
       head: 1,
     });
     expect(detached.doc.childCount).toBeGreaterThan(state.doc.childCount);
+  });
+
+  it('inserts a table and enters editing mode in its first header cell', async () => {
+    const { api, container } = await mountEditor();
+    api.setState(api.createState(''));
+    expect(api.canInsertTable()).toBe(true);
+    expect(api.insertTable(4, 3)).toBe(true);
+
+    await waitFor(() =>
+      expect(container.querySelector('.hypermd-table-wrapper')).toHaveClass('active'),
+    );
+    expect(findTableContext(api.getState())).toMatchObject({
+      row: 0,
+      column: 0,
+      width: 3,
+      height: 4,
+    });
+    expect(api.canInsertTable()).toBe(false);
+    expect(api.getState().doc.firstChild?.firstChild?.firstChild?.type.name).toBe('tableHeader');
   });
 
   it('handles image clipboard paste and plain Markdown paste', async () => {

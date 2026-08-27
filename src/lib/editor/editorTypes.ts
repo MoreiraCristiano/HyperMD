@@ -15,6 +15,8 @@ export type EditorApi = {
   serializeState: (state: EditorState) => string;
   serializeNode: (node: ProseMirrorNode) => string;
   execute: (command: EditorCommand) => Promise<boolean>;
+  canInsertTable: () => boolean;
+  insertTable: (rows: number, columns: number) => boolean;
   insertImage: (src: string, alt: string, selection: StoredSelection) => boolean;
   insertImageIntoState: (
     state: EditorState,

@@ -36,6 +36,8 @@ function fakeEditor() {
     serializeState: vi.fn((state) => String((state.doc as unknown as { content: string }).content)),
     serializeNode: vi.fn((doc) => String((doc as unknown as { content: string }).content)),
     execute: vi.fn().mockResolvedValue(true),
+    canInsertTable: vi.fn().mockReturnValue(true),
+    insertTable: vi.fn().mockReturnValue(true),
     insertImage: vi.fn().mockReturnValue(true),
     insertImageIntoState: vi.fn((state) => state),
     focus: vi.fn(),
@@ -165,6 +167,9 @@ describe('DocumentManager', () => {
     tab.path = '/work/docs/a.md';
     tabsState.update((state) => ({ ...state, tabs: [...state.tabs] }));
     await expect(manager.execute('undo')).resolves.toBe(true);
+    expect(manager.canInsertTable()).toBe(true);
+    expect(manager.insertTable(4, 3)).toBe(true);
+    expect(editor.insertTable).toHaveBeenCalledWith(4, 3);
     expect(manager.openFind()).toBe(true);
     expect(editor.openFind).toHaveBeenCalled();
     manager.markMissing('/work/docs', true);
@@ -195,6 +200,8 @@ describe('DocumentManager', () => {
     await expect(manager.open('/work/a.md')).resolves.toBe(false);
     await expect(manager.save()).resolves.toBe(false);
     await expect(manager.execute('copy')).resolves.toBe(false);
+    expect(manager.canInsertTable()).toBe(false);
+    expect(manager.insertTable(2, 2)).toBe(false);
     expect(manager.openFind()).toBe(false);
     await expect(
       manager.pasteClipboardImage(new Blob(['x']), { anchor: 1, head: 1 }),

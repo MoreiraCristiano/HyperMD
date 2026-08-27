@@ -19,6 +19,26 @@ Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
   value: vi.fn(),
 });
 
+Object.defineProperty(Range.prototype, 'getClientRects', {
+  configurable: true,
+  value: () => [],
+});
+
+Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  configurable: true,
+  value: () => ({
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  }),
+});
+
 Object.defineProperty(window, 'matchMedia', {
   configurable: true,
   value: vi.fn((query: string) => ({

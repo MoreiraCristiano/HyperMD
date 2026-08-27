@@ -35,6 +35,11 @@ export function setupWebviewGuards(options: WebviewGuardOptions = {}): () => voi
       return;
     }
 
+    if (command && key === 'p' && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      return;
+    }
+
     // Block only native zoom; internal handlers still receive the event.
     if (command && (key === '+' || key === '=' || key === '-' || key === '0')) {
       event.preventDefault();

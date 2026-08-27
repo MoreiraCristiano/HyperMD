@@ -103,6 +103,8 @@ describe('App', () => {
     vi.spyOn(documentManager, 'activateRelative');
     vi.spyOn(documentManager, 'openSettings');
     vi.spyOn(documentManager, 'openShortcuts');
+    vi.spyOn(documentManager, 'canInsertTable').mockReturnValue(true);
+    const insertTable = vi.spyOn(documentManager, 'insertTable').mockReturnValue(true);
     render(App);
     await waitFor(() => expect(closeHandler).toBeDefined());
 
@@ -136,10 +138,14 @@ describe('App', () => {
     await command('zoom in', /Zoom In/);
     await command('zoom out', /Zoom Out/);
     await command('reset zoom', /Reset Zoom/);
+    await command('insert table grid', /Insert Table/);
+    expect(await screen.findByRole('dialog', { name: 'Insert Table' })).toBeInTheDocument();
+    await user.click(screen.getByRole('gridcell', { name: '3 columns by 4 rows' }));
     await command('open settings', /Open Settings/);
     await command('keyboard shortcuts bindings', /Keyboard Shortcuts/);
 
     expect(documentManager.execute).toHaveBeenCalledWith('paste');
+    expect(insertTable).toHaveBeenCalledWith(4, 3);
     expect(documentManager.openSettings).toHaveBeenCalled();
     expect(documentManager.openShortcuts).toHaveBeenCalled();
     expect(windowApi.close).toHaveBeenCalled();
