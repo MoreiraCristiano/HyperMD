@@ -23,4 +23,5 @@ export type EditorApi = {
     selection: StoredSelection,
   ) => EditorState;
   focus: () => void;
+  openFind: () => void;
 };

@@ -316,6 +316,15 @@ class DocumentManager {
     return this.editor.execute(command);
   }
 
+  openFind(): boolean {
+    if (!this.editor) return false;
+    const snapshot = get(tabsState);
+    const tab = snapshot.tabs.find((candidate) => candidate.id === snapshot.activeId);
+    if (!tab || !isMarkdownTab(tab)) return false;
+    this.editor.openFind();
+    return true;
+  }
+
   async pasteClipboardImage(blob: Blob, selection: StoredSelection): Promise<boolean> {
     if (!this.editor) return false;
     const initial = get(tabsState);

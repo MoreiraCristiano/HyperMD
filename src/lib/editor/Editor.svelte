@@ -6,8 +6,7 @@
   import TaskItem from '@tiptap/extension-task-item';
   import { EditorState, TextSelection } from '@tiptap/pm/state';
   import { MarkdownSupport } from './markdown';
-  import { CodeBlockWithLanguage } from './extensions/CodeBlock';
-  import { ShikiHighlight } from './highlight/highlightPlugin';
+  import { DocumentFind, clearFind, findText, moveFindMatch } from './find/findPlugin';
   import { MarkdownImage, refreshRenderedImages } from './extensions/image';
   import { isSupportedImageMime } from './imageImport';
   import { sidebarState } from '../sidebar/sidebarStore';
@@ -21,6 +20,45 @@
 
   let { onTransaction, onReady, onImagePaste }: Props = $props();
   let element: HTMLDivElement;
+  let findInput = $state<HTMLInputElement>();
+  let editorInstance: Editor | null = null;
+  let findOpen = $state(false);
+  let findQuery = $state('');
+  let findCount = $state(0);
+  let findActive = $state(0);
+
+  function syncFind(state: ReturnType<typeof findText>) {
+    findCount = state.matches.length;
+    findActive = state.activeIndex + 1;
+  }
+
+  function updateFind() {
+    if (!editorInstance) return;
+    syncFind(findText(editorInstance.view, findQuery));
+  }
+
+  function moveFind(direction: number) {
+    if (!editorInstance) return;
+    syncFind(moveFindMatch(editorInstance.view, direction));
+    findInput?.focus();
+  }
+
+  function openFind() {
+    findOpen = true;
+    queueMicrotask(() => {
+      findInput?.focus();
+      findInput?.select();
+    });
+  }
+
+  function closeFind(focusEditor = true) {
+    findOpen = false;
+    findQuery = '';
+    findCount = 0;
+    findActive = 0;
+    if (editorInstance) clearFind(editorInstance.view);
+    if (focusEditor) editorInstance?.commands.focus();
+  }
 
   $effect(() => {
     $sidebarState.workspacePath;
@@ -32,15 +70,18 @@
       element,
       extensions: [
         StarterKit.configure({
-          codeBlock: false,
+          codeBlock: {
+            enableTabIndentation: true,
+            tabSize: 2,
+            HTMLAttributes: { spellcheck: 'false' },
+          },
           link: { openOnClick: false, autolink: true, linkOnPaste: true },
         }),
-        CodeBlockWithLanguage,
         TaskList,
         TaskItem.configure({ nested: true }),
         MarkdownImage,
         MarkdownSupport,
-        ShikiHighlight,
+        DocumentFind,
       ],
       content: '',
       contentType: 'markdown',
@@ -70,6 +111,7 @@
         onTransaction?.(currentEditor.state, transaction.docChanged);
       },
     });
+    editorInstance = editor;
     if (!editor.markdown) throw new Error('Extensão Markdown não inicializada.');
     const markdownManager = editor.markdown!;
 
@@ -132,7 +174,12 @@
       createState,
       getState: () => editor.state,
       setState: (state) => {
+        findOpen = false;
+        findQuery = '';
+        findCount = 0;
+        findActive = 0;
         editor.view.updateState(state);
+        clearFind(editor.view);
         requestAnimationFrame(() => refreshRenderedImages(element));
       },
       serializeState: (state) => markdownManager.serialize(state.doc.toJSON()),
@@ -146,11 +193,63 @@
       insertImageIntoState: (state, src, alt, selection) =>
         state.apply(transactionWithImage(state, src, alt, selection)),
       focus: () => editor.commands.focus(),
+      openFind,
     };
 
     onReady?.(api);
-    return () => editor.destroy();
+    return () => {
+      editorInstance = null;
+      editor.destroy();
+    };
   });
 </script>
 
-<div class="editor-host" bind:this={element}></div>
+<div class="editor-container">
+  {#if findOpen}
+    <div class="editor-find-bar" role="search" aria-label="Pesquisar no documento">
+      <input
+        bind:this={findInput}
+        value={findQuery}
+        oninput={(event) => {
+          findQuery = event.currentTarget.value;
+          updateFind();
+        }}
+        onkeydown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeFind();
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            moveFind(event.shiftKey ? -1 : 1);
+          }
+        }}
+        placeholder="Pesquisar"
+        aria-label="Pesquisar"
+        spellcheck="false"
+      />
+      <span class="editor-find-count" aria-live="polite">
+        {findCount === 0 ? 'No results' : `${findActive} of ${findCount}`}
+      </span>
+      <button
+        onclick={() => moveFind(-1)}
+        disabled={findCount === 0}
+        title="Anterior (Shift+Enter)"
+        aria-label="Resultado anterior"
+      >
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 7 3-3 3 3" /></svg>
+      </button>
+      <button
+        onclick={() => moveFind(1)}
+        disabled={findCount === 0}
+        title="Próximo (Enter)"
+        aria-label="Próximo resultado"
+      >
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 5 3 3 3-3" /></svg>
+      </button>
+      <button onclick={() => closeFind()} title="Fechar (Escape)" aria-label="Fechar pesquisa">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
+      </button>
+    </div>
+  {/if}
+  <div class="editor-host" bind:this={element}></div>
+</div>

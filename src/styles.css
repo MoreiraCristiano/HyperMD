@@ -816,113 +816,6 @@ body.resizing-sidebar {
   color: #d9d9d6;
   font-size: 0.82em;
 }
-.hypermd-editor .code-block-node {
-  position: relative;
-  margin: 1.35em 0;
-  border: 1px solid #30302f;
-  border-radius: 9px;
-  background: #111212;
-}
-.hypermd-editor .code-block-node pre {
-  margin: 0;
-  border: 0;
-  border-radius: inherit;
-  padding: 42px 20px 18px;
-  background: transparent;
-  white-space: pre;
-  overflow-wrap: normal;
-}
-.hypermd-editor .code-block-node pre code {
-  white-space: pre;
-}
-.code-block-toolbar {
-  position: absolute;
-  z-index: 4;
-  top: 7px;
-  right: 8px;
-  user-select: none;
-}
-.code-language-trigger {
-  height: 25px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 0 8px;
-  background: transparent;
-  color: #8f8f8b;
-  font-size: 11px;
-  cursor: default;
-}
-.code-language-trigger:hover,
-.code-language-trigger[aria-expanded='true'] {
-  border-color: #383837;
-  background: #242423;
-  color: #d2d2ce;
-}
-.code-language-menu {
-  position: absolute;
-  top: 29px;
-  right: 0;
-  display: none;
-  width: 210px;
-  border: 1px solid #3a3a38;
-  border-radius: 7px;
-  padding: 5px;
-  background: #20201f;
-  box-shadow: 0 8px 20px #0008;
-}
-.code-language-menu.open {
-  display: block;
-}
-.code-language-search {
-  width: 100%;
-  height: 27px;
-  border: 1px solid #41413f;
-  border-radius: 4px;
-  padding: 0 7px;
-  outline: none;
-  background: #171717;
-  color: #e2e2de;
-  font: 11px/1.2 inherit;
-}
-.code-language-search:focus {
-  border-color: #8062a7;
-}
-.code-language-options {
-  max-height: 230px;
-  margin-top: 4px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-.code-language-option {
-  display: block;
-  width: 100%;
-  height: 25px;
-  border: 0;
-  border-radius: 3px;
-  padding: 0 7px;
-  background: transparent;
-  color: #bdbdb8;
-  font-size: 11px;
-  text-align: left;
-}
-.code-language-option:hover,
-.code-language-option:focus,
-.code-language-option.active {
-  outline: none;
-  background: #30302f;
-  color: #f0f0ec;
-}
-.code-language-option.active::after {
-  float: right;
-  color: #b996dd;
-  content: '✓';
-}
-.code-language-empty {
-  display: block;
-  padding: 8px 7px;
-  color: #777773;
-  font-size: 11px;
-}
 .hypermd-editor blockquote {
   margin: 1em 0;
   border-left: 3px solid #555552;
@@ -988,6 +881,89 @@ body.resizing-sidebar {
 }
 .hypermd-editor ::selection {
   background: #553c708c;
+}
+
+.editor-container {
+  width: 100%;
+}
+.editor-find-bar {
+  position: fixed;
+  z-index: 15;
+  top: 77px;
+  right: 13px;
+  display: flex;
+  height: 34px;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #3a3a38;
+  border-radius: 6px;
+  padding: 3px 4px;
+  background: #20201f;
+  box-shadow: 0 6px 18px #0007;
+  color: #aaa9a5;
+  font-family: var(--ui-font-family);
+  font-size: max(10px, calc(var(--ui-font-size) - 1px));
+}
+.editor-find-bar input {
+  width: min(240px, 30vw);
+  height: 26px;
+  border: 1px solid #41413f;
+  border-radius: 4px;
+  padding: 0 8px;
+  outline: none;
+  background: #151515;
+  color: #e5e5e2;
+  font: inherit;
+}
+.editor-find-bar input:focus {
+  border-color: #8062a7;
+}
+.editor-find-count {
+  min-width: 58px;
+  padding: 0 5px;
+  color: #858581;
+  text-align: center;
+  white-space: nowrap;
+}
+.editor-find-bar button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: #aaa9a5;
+  cursor: pointer;
+}
+.editor-find-bar button:hover:not(:disabled),
+.editor-find-bar button:focus-visible {
+  background: #30302f;
+  color: #efefec;
+  outline: none;
+}
+.editor-find-bar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.editor-find-bar svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+.hypermd-editor .find-match {
+  border-radius: 2px;
+  background: #6b552f;
+  color: inherit;
+}
+.hypermd-editor .find-match.active {
+  outline: 1px solid #d0a75c;
+  background: #96723a;
 }
 
 :root[data-editor-word-wrap='off'] .hypermd-editor p,

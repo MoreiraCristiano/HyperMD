@@ -90,6 +90,9 @@
     if (key === 'b') {
       event.preventDefault();
       sidebarActions.toggle();
+    } else if (key === 'f') {
+      event.preventDefault();
+      documentManager.openFind();
     } else if (key === 'w') {
       event.preventDefault();
       void run(() => documentManager.close());
