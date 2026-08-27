@@ -19,7 +19,6 @@ export type AppCommandId =
   | 'tabs.previous'
   | 'view.toggleSidebar'
   | 'view.explorer'
-  | 'view.search'
   | 'view.zoomIn'
   | 'view.zoomOut'
   | 'view.resetZoom'
@@ -184,13 +183,6 @@ export const appCommands: readonly AppCommand[] = [
     label: 'Show Explorer',
     description: 'Open the Explorer sidebar.',
     keywords: ['files', 'workspace'],
-  },
-  {
-    id: 'view.search',
-    category: 'View',
-    label: 'Show Workspace Search',
-    description: 'Open workspace text search.',
-    keywords: ['find'],
   },
   {
     id: 'view.zoomIn',

@@ -1,18 +1,21 @@
 <script lang="ts">
   import { documentManager } from '../editor/documentManager';
   import { activeTab } from '../tabs/tabStore';
-  import { sidebarActions, sidebarState, type SidebarView } from './sidebarStore';
+  import { sidebarActions, sidebarState } from './sidebarStore';
 
-  function activate(view: SidebarView) {
-    sidebarActions.selectView(view);
-  }
+  type Props = {
+    commandPaletteOpen: boolean;
+    onOpenCommandPalette: () => void;
+  };
+
+  let { commandPaletteOpen, onOpenCommandPalette }: Props = $props();
 </script>
 
 <aside class="activity-bar" aria-label="Activity Bar">
   <div class="activity-main">
     <button
       class:active={$sidebarState.visible && $sidebarState.activeView === 'explorer'}
-      onclick={() => activate('explorer')}
+      onclick={() => sidebarActions.selectView('explorer')}
       title="Explorer"
       aria-label="Explorer"
     >
@@ -21,14 +24,13 @@
       </svg>
     </button>
     <button
-      class:active={$sidebarState.visible && $sidebarState.activeView === 'search'}
-      onclick={() => activate('search')}
-      title="Search"
-      aria-label="Search"
+      class:active={commandPaletteOpen}
+      onclick={onOpenCommandPalette}
+      title="Command Palette"
+      aria-label="Command Palette"
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="10.5" cy="10.5" r="5.5" />
-        <path d="m15 15 5 5" />
+        <path d="m5 7 5 5-5 5M12 17h7" />
       </svg>
     </button>
   </div>

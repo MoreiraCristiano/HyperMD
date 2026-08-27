@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { activeTab } from '../tabs/tabStore';
   import Explorer from './Explorer.svelte';
-  import Search from './Search.svelte';
   import { MAX_WIDTH, MIN_WIDTH, sidebarActions, sidebarState } from './sidebarStore';
 
   type Props = {
@@ -66,9 +65,6 @@
         {onRenamed}
         {onError}
       />
-    </div>
-    <div class:hidden={$sidebarState.activeView !== 'search'} class="sidebar-view">
-      <Search {onOpenFile} {onError} />
     </div>
     <button
       class="sidebar-resizer"

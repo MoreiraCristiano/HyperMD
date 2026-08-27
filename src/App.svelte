@@ -126,7 +126,6 @@
       else if (id === 'tabs.previous') documentManager.activateRelative(-1);
       else if (id === 'view.toggleSidebar') sidebarActions.toggle();
       else if (id === 'view.explorer') sidebarActions.show('explorer');
-      else if (id === 'view.search') sidebarActions.show('search');
       else if (id === 'view.zoomIn') await zoomActions.increase();
       else if (id === 'view.zoomOut') await zoomActions.decrease();
       else if (id === 'view.resetZoom') await zoomActions.reset();
@@ -227,7 +226,7 @@
 <div class="app-frame">
   <div class="app-shell" class:busy>
     <div class="app-navigation">
-      <ActivityBar />
+      <ActivityBar {commandPaletteOpen} onOpenCommandPalette={() => (commandPaletteOpen = true)} />
       <Sidebar
         onOpenFile={openDocumentAt}
         onChangeWorkspace={changeWorkspace}

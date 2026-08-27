@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export type SidebarView = 'explorer' | 'search';
+export type SidebarView = 'explorer';
 
 export type SidebarState = {
   visible: boolean;

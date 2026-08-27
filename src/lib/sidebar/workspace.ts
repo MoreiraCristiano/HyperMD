@@ -1,15 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { basename, join, normalize } from '@tauri-apps/api/path';
-import {
-  exists,
-  mkdir,
-  readDir,
-  readTextFile,
-  remove,
-  rename,
-  stat,
-  writeTextFile,
-} from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, remove, rename, stat, writeTextFile } from '@tauri-apps/plugin-fs';
 import { fileExtension, isImagePath } from '../images/imageTypes';
 
 export type WorkspaceFileType = 'markdown' | 'image';
@@ -25,12 +16,6 @@ export type FileNode = {
   children: FileNode[];
 };
 
-export type SearchResult = {
-  path: string;
-  relativePath: string;
-  snippet: string;
-};
-
 export type WorkspaceEntryRef = {
   path: string;
   isDirectory: boolean;
@@ -44,9 +29,6 @@ export type WorkspaceMoveBatchResult = {
   moved: WorkspaceMove[];
   error: unknown | null;
 };
-
-const MAX_SEARCH_RESULTS = 200;
-const MAX_SEARCH_FILE_SIZE = 1024 * 1024;
 
 export async function chooseWorkspace(): Promise<string | null> {
   return open({
@@ -258,48 +240,4 @@ export async function removeWorkspaceEntry(
   assertInsideWorkspace(root, path);
   if (normalized(root) === normalized(path)) throw new Error('The workspace cannot be deleted.');
   await remove(path, { recursive: isDirectory });
-}
-
-export async function searchMarkdownFiles(
-  root: string,
-  query: string,
-  isCurrent: () => boolean,
-): Promise<SearchResult[]> {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return [];
-  const results: SearchResult[] = [];
-  const pending = [root];
-
-  while (pending.length && results.length < MAX_SEARCH_RESULTS && isCurrent()) {
-    const directory = pending.pop()!;
-    const entries = await readWorkspaceDirectory(root, directory);
-    for (const entry of entries) {
-      if (!isCurrent()) return results;
-      if (entry.isDirectory) {
-        pending.push(entry.path);
-        continue;
-      }
-
-      if (entry.type !== 'markdown') continue;
-
-      const info = await stat(entry.path);
-      if (info.size > MAX_SEARCH_FILE_SIZE) continue;
-      const content = await readTextFile(entry.path);
-      const lowerContent = content.toLocaleLowerCase();
-      const matchIndex = lowerContent.indexOf(needle);
-      if (matchIndex === -1) continue;
-      const lineStart = content.lastIndexOf('\n', matchIndex) + 1;
-      const nextBreak = content.indexOf('\n', matchIndex);
-      const lineEnd = nextBreak === -1 ? content.length : nextBreak;
-      const line = content.slice(lineStart, lineEnd).trim();
-      results.push({
-        path: entry.path,
-        relativePath: relativeWorkspacePath(root, entry.path),
-        snippet: line.length > 120 ? `${line.slice(0, 117)}…` : line,
-      });
-      if (results.length >= MAX_SEARCH_RESULTS) break;
-    }
-  }
-
-  return results;
 }

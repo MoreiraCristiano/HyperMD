@@ -431,8 +431,7 @@ body.resizing-sidebar {
 }
 
 .empty-workspace,
-.settings-empty,
-.search-empty {
+.settings-empty {
   padding: 10px 14px;
   color: #8e8e8a;
   line-height: 1.45;
@@ -685,63 +684,6 @@ body.resizing-sidebar {
   color: #777;
 }
 
-.search-box {
-  padding: 2px 10px 7px;
-}
-.search-box input {
-  width: 100%;
-  height: 27px;
-  border: 1px solid #3a3a38;
-  border-radius: 4px;
-  padding: 0 8px;
-  background: #151515;
-  color: #dededb;
-  font: inherit;
-  outline: none;
-}
-.search-box input:focus {
-  border-color: #765b99;
-}
-.search-count {
-  padding: 3px 11px 6px;
-  color: #7f7f7b;
-  font-size: 10px;
-}
-.search-results {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-}
-.search-results button {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  border: 0;
-  padding: 6px 11px 7px;
-  background: transparent;
-  color: #bbb;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-.search-results button:hover {
-  background: #292928;
-}
-.search-results strong,
-.search-results span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.search-results strong {
-  margin-bottom: 2px;
-  color: #d3d3d0;
-  font-weight: 560;
-}
-.search-results span {
-  color: #858581;
-}
 .editor-host {
   width: 100%;
 }
@@ -1121,8 +1063,7 @@ body.resizing-sidebar {
 .tree-item {
   font-size: var(--ui-font-size);
 }
-.image-toolbar,
-.search-results button {
+.image-toolbar {
   font-size: max(10px, calc(var(--ui-font-size) - 1px));
 }
 
@@ -1355,8 +1296,7 @@ body.resizing-sidebar {
 .dialog-actions button:disabled {
   opacity: 0.45;
 }
-.sidebar-title,
-.search-count {
+.sidebar-title {
   font-size: max(9px, calc(var(--ui-font-size) - 2px));
 }
 
