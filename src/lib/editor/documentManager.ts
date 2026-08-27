@@ -1,7 +1,7 @@
-import { message } from '@tauri-apps/plugin-dialog';
 import { EditorState } from '@tiptap/pm/state';
 import { get } from 'svelte/store';
 import { chooseSavePath, fileName, readMarkdown, writeMarkdown } from '../files';
+import { dialogService } from '../dialogs/dialogStore';
 import { isImagePath } from '../images/imageTypes';
 import { validateWorkspaceImagePath } from '../images/localImage';
 import { sidebarActions, sidebarState } from '../sidebar/sidebarStore';
@@ -416,13 +416,18 @@ class DocumentManager {
 
   private async confirmDirty(tab: MarkdownTab): Promise<DirtyAction> {
     if (!tab.dirty) return 'discard';
-    const result = await message(`Do you want to save the changes to “${tab.name}”?`, {
+    const result = await dialogService.choose({
       title: 'Unsaved Changes',
-      kind: 'warning',
-      buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' },
+      message: `Do you want to save the changes to “${tab.name}”?`,
+      tone: 'warning',
+      actions: [
+        { id: 'cancel', label: 'Cancel', variant: 'secondary' },
+        { id: 'discard', label: "Don't Save", variant: 'secondary' },
+        { id: 'save', label: 'Save', variant: 'primary' },
+      ],
     });
-    if (result === 'Yes' || result === 'Save') return 'save';
-    if (result === 'No' || result === "Don't Save") return 'discard';
+    if (result === 'save') return 'save';
+    if (result === 'discard') return 'discard';
     return 'cancel';
   }
 

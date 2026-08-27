@@ -1,5 +1,6 @@
 <script lang="ts">
   import FileTree from './FileTree.svelte';
+  import { dialogService } from '../dialogs/dialogStore';
   import {
     sidebarActions,
     sidebarState,
@@ -110,7 +111,13 @@
     const root = $sidebarState.workspacePath;
     const parent = operationDirectory();
     if (!root || !parent) return;
-    const name = window.prompt('Markdown file name:', 'new-file.md');
+    const name = await dialogService.prompt({
+      title: 'New Markdown File',
+      label: 'File name',
+      value: 'new-file.md',
+      confirmLabel: 'Create',
+      required: true,
+    });
     if (!name) return;
     await run(async () => {
       const path = await createMarkdownFile(root, parent, name);
@@ -123,7 +130,13 @@
     const root = $sidebarState.workspacePath;
     const parent = operationDirectory();
     if (!root || !parent) return;
-    const name = window.prompt('Folder name:', 'new-folder');
+    const name = await dialogService.prompt({
+      title: 'New Folder',
+      label: 'Folder name',
+      value: 'new-folder',
+      confirmLabel: 'Create',
+      required: true,
+    });
     if (!name) return;
     await run(async () => {
       await createWorkspaceFolder(root, parent, name);
@@ -135,7 +148,13 @@
     const root = $sidebarState.workspacePath;
     const node = selectedNode;
     if (!root || !node) return;
-    const name = window.prompt('New name:', node.name);
+    const name = await dialogService.prompt({
+      title: 'Rename',
+      label: 'New name',
+      value: node.name,
+      confirmLabel: 'Rename',
+      required: true,
+    });
     if (!name || name === node.name) return;
     await run(async () => {
       const newPath = await renameWorkspaceEntry(
@@ -156,10 +175,14 @@
     const root = $sidebarState.workspacePath;
     const node = selectedNode;
     if (!root || !node) return;
-    const destination = window.prompt(
-      'Destination folder relative to the workspace (use . for the root):',
-      '.',
-    );
+    const destination = await dialogService.prompt({
+      title: 'Move',
+      message: 'Enter a destination folder relative to the workspace. Use . for the root.',
+      label: 'Destination folder',
+      value: '.',
+      confirmLabel: 'Move',
+      required: true,
+    });
     if (destination === null) return;
     await run(async () => {
       const newPath = await moveWorkspaceEntry(root, node.path, destination);
@@ -178,7 +201,13 @@
     const label = node.isDirectory
       ? `the folder “${node.name}” and all its contents`
       : `“${node.name}”`;
-    if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return;
+    const confirmed = await dialogService.confirm({
+      title: node.isDirectory ? 'Delete Folder' : 'Delete File',
+      message: `Delete ${label}? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     if (!(await onBeforeDelete(node.path, node.isDirectory))) return;
     await run(async () => {
       await removeWorkspaceEntry(root, node.path, node.isDirectory);

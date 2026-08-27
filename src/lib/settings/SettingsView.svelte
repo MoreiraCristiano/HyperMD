@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
+  import { dialogService } from '../dialogs/dialogStore';
   import { settingsActions, settingsStore } from './settingsStore';
 
   const fontSuggestions = [
@@ -20,9 +20,11 @@
   }
 
   async function resetSettings() {
-    const confirmed = await confirmDialog('Reset only the settings shown on this screen?', {
+    const confirmed = await dialogService.confirm({
       title: 'Reset Settings',
-      kind: 'warning',
+      message: 'Reset only the settings shown on this screen?',
+      confirmLabel: 'Reset',
+      tone: 'warning',
     });
     if (confirmed) settingsActions.reset();
   }

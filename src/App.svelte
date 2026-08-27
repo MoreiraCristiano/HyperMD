@@ -20,6 +20,8 @@
   import CommandPalette from './lib/commands/CommandPalette.svelte';
   import { appCommands, type AppCommandId } from './lib/commands/commands';
   import KeyboardShortcutsView from './lib/shortcuts/KeyboardShortcutsView.svelte';
+  import DialogHost from './lib/dialogs/DialogHost.svelte';
+  import { dialogState } from './lib/dialogs/dialogStore';
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -29,7 +31,7 @@
   async function updateTitle() {
     const tab = get(activeTab);
     const title = tab
-      ? `${tab.dirty ? '● ' : ''}${tab.name}${tab.missing ? ' [ausente]' : ''} — HyperMD`
+      ? `${tab.dirty ? '● ' : ''}${tab.name}${tab.missing ? ' [missing]' : ''} — HyperMD`
       : 'HyperMD';
     if (title === lastTitle) return;
     lastTitle = title;
@@ -123,6 +125,11 @@
     const command = event.ctrlKey || event.metaKey;
     if (!command) return;
     const key = event.key.toLowerCase();
+
+    if (get(dialogState)) {
+      if (['b', 'f', 'n', 'o', 'p', 's', 'tab', 'w'].includes(key)) event.preventDefault();
+      return;
+    }
 
     if (key === 'p' && event.shiftKey && !event.altKey) {
       event.preventDefault();
@@ -251,4 +258,5 @@
     onExecute={executeCommand}
     onClose={() => (commandPaletteOpen = false)}
   />
+  <DialogHost />
 </div>
