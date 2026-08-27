@@ -12,6 +12,13 @@
     onSelectDirectory: (node: FileNode) => void;
     onSelectFile: (node: FileNode) => void;
     onContextMenu: (node: FileNode, event: MouseEvent) => void;
+    draggedPath: string | null;
+    dropTargetPath: string | null;
+    onDragStart: (node: FileNode, event: DragEvent) => void;
+    onDragEnd: () => void;
+    onDragOver: (node: FileNode, event: DragEvent) => void;
+    onDragLeave: (node: FileNode, event: DragEvent) => void;
+    onDrop: (node: FileNode, event: DragEvent) => void;
   };
 
   let {
@@ -24,6 +31,13 @@
     onSelectDirectory,
     onSelectFile,
     onContextMenu,
+    draggedPath,
+    dropTargetPath,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDragLeave,
+    onDrop,
   }: Props = $props();
 
   function activate() {
@@ -41,8 +55,16 @@
   class="tree-item"
   class:active={activePath === node.path}
   class:selected={selectedPath === node.path}
+  class:dragging={draggedPath === node.path}
+  class:drop-target={node.isDirectory && dropTargetPath === node.path}
   style:padding-left={`${7 + level * 13}px`}
+  draggable="true"
   onclick={activate}
+  ondragstart={(event) => onDragStart(node, event)}
+  ondragend={onDragEnd}
+  ondragover={(event) => onDragOver(node, event)}
+  ondragleave={(event) => onDragLeave(node, event)}
+  ondrop={(event) => onDrop(node, event)}
   oncontextmenu={(event) => {
     event.preventDefault();
     event.currentTarget.focus();
@@ -89,5 +111,12 @@
     {onSelectDirectory}
     {onSelectFile}
     {onContextMenu}
+    {draggedPath}
+    {dropTargetPath}
+    {onDragStart}
+    {onDragEnd}
+    {onDragOver}
+    {onDragLeave}
+    {onDrop}
   />
 {/if}

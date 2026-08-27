@@ -485,6 +485,17 @@ body.resizing-sidebar {
 .explorer-tree.loading {
   opacity: 0.55;
 }
+.explorer-tree.drop-target-root {
+  background: rgb(128 98 167 / 8%);
+  outline: 1px solid #8062a7;
+  outline-offset: -1px;
+}
+.workspace-label.drop-target {
+  background: #41354d;
+  color: #f4eef9;
+  outline: 1px solid #8062a7;
+  outline-offset: -1px;
+}
 .change-workspace {
   flex: 0 0 auto;
   margin: 6px 8px 9px;
@@ -523,6 +534,15 @@ body.resizing-sidebar {
 .tree-item.active {
   background: #3a3045;
   color: #f0eaf5;
+}
+.tree-item.dragging {
+  opacity: 0.42;
+}
+.tree-item.drop-target {
+  background: #41354d;
+  color: #f4eef9;
+  outline: 1px solid #8062a7;
+  outline-offset: -1px;
 }
 .sidebar-context-menu {
   position: fixed;

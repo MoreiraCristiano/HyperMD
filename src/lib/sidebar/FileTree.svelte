@@ -12,6 +12,13 @@
     onSelectDirectory: (node: FileNode) => void;
     onSelectFile: (node: FileNode) => void;
     onContextMenu: (node: FileNode, event: MouseEvent) => void;
+    draggedPath: string | null;
+    dropTargetPath: string | null;
+    onDragStart: (node: FileNode, event: DragEvent) => void;
+    onDragEnd: () => void;
+    onDragOver: (node: FileNode, event: DragEvent) => void;
+    onDragLeave: (node: FileNode, event: DragEvent) => void;
+    onDrop: (node: FileNode, event: DragEvent) => void;
   };
 
   let {
@@ -24,6 +31,13 @@
     onSelectDirectory,
     onSelectFile,
     onContextMenu,
+    draggedPath,
+    dropTargetPath,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDragLeave,
+    onDrop,
   }: Props = $props();
 </script>
 
@@ -39,6 +53,13 @@
       {onSelectDirectory}
       {onSelectFile}
       {onContextMenu}
+      {draggedPath}
+      {dropTargetPath}
+      {onDragStart}
+      {onDragEnd}
+      {onDragOver}
+      {onDragLeave}
+      {onDrop}
     />
   {/each}
 </div>

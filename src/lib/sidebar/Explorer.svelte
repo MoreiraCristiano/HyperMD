@@ -15,6 +15,7 @@
     moveWorkspaceEntry,
     pathName,
     readWorkspaceDirectory,
+    relativeWorkspacePath,
     removeWorkspaceEntry,
     renameWorkspaceEntry,
     type FileNode,
@@ -65,6 +66,8 @@
   let loadedWorkspacePath: string | null = null;
   let handledRefreshRequest = 0;
   let contextMenu = $state<ContextMenuState | null>(null);
+  let draggedNode = $state<FileNode | null>(null);
+  let dropTargetPath = $state<string | null>(null);
   let contextMenuId = 0;
 
   async function run(action: () => Promise<void>) {
@@ -109,11 +112,153 @@
 
   function findDirectory(nodes: FileNode[], path: string): FileNode | null {
     for (const node of nodes) {
-      if (node.isDirectory && node.path === path) return node;
+      if (node.isDirectory && samePath(node.path, path)) return node;
       const nested = findDirectory(node.children, path);
       if (nested) return nested;
     }
     return null;
+  }
+
+  function normalizedPath(path: string): string {
+    const value = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^[A-Za-z]:/.test(value) ? value.toLowerCase() : value;
+  }
+
+  function samePath(left: string, right: string): boolean {
+    return normalizedPath(left) === normalizedPath(right);
+  }
+
+  function parentPath(path: string): string {
+    return path.replace(/[\\/][^\\/]+$/, '');
+  }
+
+  function canDropInto(destination: string): boolean {
+    const source = draggedNode;
+    if (!source || samePath(parentPath(source.path), destination)) return false;
+    if (!source.isDirectory) return true;
+    const sourcePath = normalizedPath(source.path);
+    const destinationPath = normalizedPath(destination);
+    return destinationPath !== sourcePath && !destinationPath.startsWith(`${sourcePath}/`);
+  }
+
+  function compareNodes(left: FileNode, right: FileNode): number {
+    if (left.isDirectory !== right.isDirectory) return left.isDirectory ? -1 : 1;
+    return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+  }
+
+  function detachNode(nodes: FileNode[], path: string): FileNode | null {
+    const index = nodes.findIndex((node) => samePath(node.path, path));
+    if (index !== -1) return nodes.splice(index, 1)[0];
+    for (const node of nodes) {
+      const detached = detachNode(node.children, path);
+      if (detached) return detached;
+    }
+    return null;
+  }
+
+  function rewriteNodePaths(node: FileNode, oldPath: string, newPath: string) {
+    node.path = `${newPath}${node.path.slice(oldPath.length)}`;
+    node.children.forEach((child) => rewriteNodePaths(child, oldPath, newPath));
+  }
+
+  function applyTreeMove(oldPath: string, newPath: string, destination: string) {
+    const node = detachNode(entries, oldPath);
+    if (!node) return;
+    rewriteNodePaths(node, oldPath, newPath);
+    const root = $sidebarState.workspacePath;
+    if (root && samePath(destination, root)) {
+      entries.push(node);
+      entries.sort(compareNodes);
+    } else {
+      const target = findDirectory(entries, destination);
+      if (target?.loaded) {
+        target.children.push(node);
+        target.children.sort(compareNodes);
+      }
+    }
+    selectedNode = node;
+    selectedDirectory = node.isDirectory ? node.path : destination;
+  }
+
+  async function moveNodeToDirectory(node: FileNode, destination: string) {
+    const root = $sidebarState.workspacePath;
+    if (!root) return;
+    await run(async () => {
+      const oldPath = node.path;
+      const requestedDirectory = relativeWorkspacePath(root, destination) || '.';
+      const newPath = await moveWorkspaceEntry(root, oldPath, requestedDirectory);
+      if (samePath(newPath, oldPath)) return;
+      applyTreeMove(oldPath, newPath, destination);
+      onRenamed(oldPath, newPath, node.isDirectory);
+    });
+  }
+
+  function beginDrag(node: FileNode, event: DragEvent) {
+    draggedNode = node;
+    dropTargetPath = null;
+    contextMenu = null;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('application/x-hypermd-workspace-entry', node.path);
+    }
+  }
+
+  function endDrag() {
+    draggedNode = null;
+    dropTargetPath = null;
+  }
+
+  function dragOverNode(node: FileNode, event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const valid = node.isDirectory && canDropInto(node.path);
+    dropTargetPath = valid ? node.path : null;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = valid ? 'move' : 'none';
+  }
+
+  function dragLeaveNode(node: FileNode, event: DragEvent) {
+    event.stopPropagation();
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget instanceof Node) {
+      if (event.currentTarget.contains(related)) return;
+    }
+    if (dropTargetPath === node.path) dropTargetPath = null;
+  }
+
+  function dropOnNode(node: FileNode, event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const source = draggedNode;
+    const valid = source && node.isDirectory && canDropInto(node.path);
+    endDrag();
+    if (source && valid) void moveNodeToDirectory(source, node.path);
+  }
+
+  function dragOverRoot(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const root = $sidebarState.workspacePath;
+    const valid = Boolean(root && canDropInto(root));
+    dropTargetPath = valid ? root : null;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = valid ? 'move' : 'none';
+  }
+
+  function dragLeaveRoot(event: DragEvent) {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget instanceof Node) {
+      if (event.currentTarget.contains(related)) return;
+    }
+    if (dropTargetPath === $sidebarState.workspacePath) dropTargetPath = null;
+  }
+
+  function dropOnRoot(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const source = draggedNode;
+    const root = $sidebarState.workspacePath;
+    const valid = source && root && canDropInto(root);
+    endDrag();
+    if (source && root && valid) void moveNodeToDirectory(source, root);
   }
 
   async function refreshDirectory(path: string) {
@@ -214,14 +359,12 @@
       required: true,
     });
     if (destination === null) return;
-    await run(async () => {
-      const newPath = await moveWorkspaceEntry(root, node.path, destination);
-      if (newPath === node.path) return;
-      onRenamed(node.path, newPath, node.isDirectory);
-      selectedNode = null;
-      selectedDirectory = root;
-      await loadRoot();
-    });
+    const relativeDestination = destination.trim().replace(/\\/g, '/');
+    const destinationPath =
+      !relativeDestination || relativeDestination === '.'
+        ? root
+        : `${root.replace(/[\\/]+$/, '')}/${relativeDestination}`;
+    await moveNodeToDirectory(node, destinationPath);
   }
 
   async function deleteSelected() {
@@ -300,6 +443,7 @@
   async function executeContextAction(action: string) {
     const target = contextMenu?.node ?? null;
     contextMenu = null;
+    endDrag();
     if (action === 'open' && target && !target.isDirectory) openFile(target);
     else if (action === 'new-file') await createFile();
     else if (action === 'new-folder') await createFolder();
@@ -360,10 +504,14 @@
     <div class="explorer-heading">
       <button
         class="workspace-label"
+        class:drop-target={dropTargetPath === $sidebarState.workspacePath}
         onclick={() => {
           selectedDirectory = $sidebarState.workspacePath;
           selectedNode = null;
         }}
+        ondragover={dragOverRoot}
+        ondragleave={dragLeaveRoot}
+        ondrop={dropOnRoot}
         title={$sidebarState.workspacePath}
       >
         {$sidebarState.workspaceName}
@@ -380,7 +528,16 @@
         </button>
       </div>
     </div>
-    <div class="explorer-tree" class:loading>
+    <div
+      class="explorer-tree"
+      role="group"
+      aria-label="Workspace files"
+      class:loading
+      class:drop-target-root={dropTargetPath === $sidebarState.workspacePath}
+      ondragover={dragOverRoot}
+      ondragleave={dragLeaveRoot}
+      ondrop={dropOnRoot}
+    >
       <FileTree
         nodes={entries}
         {activePath}
@@ -390,6 +547,13 @@
         onSelectDirectory={selectDirectory}
         onSelectFile={selectFile}
         onContextMenu={openNodeContextMenu}
+        draggedPath={draggedNode?.path ?? null}
+        {dropTargetPath}
+        onDragStart={beginDrag}
+        onDragEnd={endDrag}
+        onDragOver={dragOverNode}
+        onDragLeave={dragLeaveNode}
+        onDrop={dropOnNode}
       />
     </div>
     <button class="change-workspace" onclick={selectWorkspace}>Open Another Folder…</button>
