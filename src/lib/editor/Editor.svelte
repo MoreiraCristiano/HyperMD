@@ -29,6 +29,66 @@
   let findQuery = $state('');
   let findCount = $state(0);
   let findActive = $state(0);
+  let focusedImage = $state<{ src: string; alt: string } | null>(null);
+  let imageFocusBackdrop = $state<HTMLDivElement>();
+  let imageFocusZoom = $state(1);
+  let focusedImageWidth = $state(0);
+  let focusedImageHeight = $state(0);
+  const IMAGE_FOCUS_ZOOM_LEVELS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
+
+  function openImageFocus(event: MouseEvent) {
+    const image =
+      event.target instanceof HTMLImageElement && event.target.matches('img.markdown-image')
+        ? event.target
+        : null;
+    if (!image?.complete || image.naturalWidth === 0) return;
+    const src = image.currentSrc || image.src;
+    if (!src) return;
+    event.preventDefault();
+    focusedImage = { src, alt: image.alt };
+    imageFocusZoom = 1;
+    focusedImageWidth = 0;
+    focusedImageHeight = 0;
+    queueMicrotask(() => imageFocusBackdrop?.focus());
+  }
+
+  function closeImageFocus() {
+    if (!focusedImage) return;
+    focusedImage = null;
+    queueMicrotask(() => editorInstance?.commands.focus());
+  }
+
+  function handleImageFocusKeydown(event: KeyboardEvent) {
+    if (!focusedImage) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeImageFocus();
+      return;
+    }
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      changeImageFocusZoom(1);
+    } else if (event.key === '-') {
+      event.preventDefault();
+      changeImageFocusZoom(-1);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      resetFocusedImageZoom();
+    }
+  }
+
+  function changeImageFocusZoom(direction: number) {
+    imageFocusZoom =
+      direction > 0
+        ? (IMAGE_FOCUS_ZOOM_LEVELS.find((level) => level > imageFocusZoom) ?? 5)
+        : ([...IMAGE_FOCUS_ZOOM_LEVELS].reverse().find((level) => level < imageFocusZoom) ?? 0.1);
+  }
+
+  function resetFocusedImageZoom() {
+    imageFocusZoom = 1;
+  }
 
   function syncFind(state: ReturnType<typeof findText>) {
     findCount = state.matches.length;
@@ -114,6 +174,7 @@
       },
     });
     editorInstance = editor;
+    element.addEventListener('dblclick', openImageFocus);
     if (!editor.markdown) throw new Error('Markdown extension was not initialized.');
     const markdownManager = editor.markdown!;
 
@@ -176,6 +237,7 @@
       createState,
       getState: () => editor.state,
       setState: (state) => {
+        focusedImage = null;
         findOpen = false;
         findQuery = '';
         findCount = 0;
@@ -200,6 +262,7 @@
 
     onReady?.(api);
     return () => {
+      element.removeEventListener('dblclick', openImageFocus);
       editorInstance = null;
       editor.destroy();
     };
@@ -254,4 +317,54 @@
     </div>
   {/if}
   <div class="editor-host" bind:this={element}></div>
+  {#if focusedImage}
+    <div
+      bind:this={imageFocusBackdrop}
+      class="image-focus-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={focusedImage.alt ? `Image preview: ${focusedImage.alt}` : 'Image preview'}
+      tabindex="-1"
+      onkeydown={handleImageFocusKeydown}
+      onclick={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLImageElement) return;
+        if (target instanceof Element && target.closest('.image-focus-toolbar')) return;
+        closeImageFocus();
+      }}
+    >
+      <div class="image-focus-viewport">
+        <div class="image-focus-canvas">
+          <img
+            src={focusedImage.src}
+            alt={focusedImage.alt}
+            draggable="false"
+            style:width={focusedImageWidth ? `${focusedImageWidth * imageFocusZoom}px` : undefined}
+            style:height={focusedImageHeight
+              ? `${focusedImageHeight * imageFocusZoom}px`
+              : undefined}
+            onload={(event) => {
+              const image = event.currentTarget as HTMLImageElement;
+              focusedImageWidth = image.naturalWidth;
+              focusedImageHeight = image.naturalHeight;
+            }}
+          />
+        </div>
+      </div>
+      <div class="image-toolbar image-focus-toolbar">
+        <button onclick={() => changeImageFocusZoom(-1)} title="Zoom out" aria-label="Zoom out"
+          >−</button
+        >
+        <button
+          class="image-focus-zoom"
+          onclick={resetFocusedImageZoom}
+          title="Reset zoom to 100%"
+          aria-label="Reset zoom to 100%">{Math.round(imageFocusZoom * 100)}%</button
+        >
+        <button onclick={() => changeImageFocusZoom(1)} title="Zoom in" aria-label="Zoom in"
+          >+</button
+        >
+      </div>
+    </div>
+  {/if}
 </div>

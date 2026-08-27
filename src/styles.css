@@ -954,6 +954,62 @@ body.resizing-sidebar {
   outline: 2px solid #8062a7;
   outline-offset: 3px;
 }
+.image-focus-backdrop {
+  position: fixed;
+  z-index: 550;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  background: rgb(0 0 0 / 78%);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+}
+.image-focus-toolbar {
+  position: absolute;
+  z-index: 1;
+  bottom: 18px;
+  left: 50%;
+  width: max-content;
+  height: auto;
+  min-height: 34px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 18px;
+  padding: 4px;
+  background: rgb(25 25 24 / 92%);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 55%);
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+.image-focus-toolbar .image-focus-zoom {
+  min-width: 48px;
+}
+.image-focus-viewport {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.image-focus-canvas {
+  display: flex;
+  min-width: 100%;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 48px 92px;
+}
+.image-focus-canvas img {
+  display: block;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  border-radius: 7px;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 72%);
+  object-fit: contain;
+  cursor: default;
+}
 .hypermd-editor .is-empty:first-child::before {
   content: 'Comece a escrever…';
   float: left;
