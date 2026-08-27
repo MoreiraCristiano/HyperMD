@@ -29,6 +29,7 @@ try {
 
     Invoke-CheckedCommand npm.cmd run format:check
     Invoke-CheckedCommand npm.cmd run check
+    Invoke-CheckedCommand npm.cmd run test:coverage
     Invoke-CheckedCommand npm.cmd run build
     Invoke-CheckedCommand cargo.exe test --manifest-path src-tauri/Cargo.toml --locked
 }

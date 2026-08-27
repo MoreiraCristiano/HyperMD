@@ -125,7 +125,10 @@
 
   $effect(() => {
     $sidebarState.workspacePath;
-    if (element) requestAnimationFrame(() => refreshRenderedImages(element));
+    if (element) {
+      const root = element;
+      requestAnimationFrame(() => refreshRenderedImages(root));
+    }
   });
 
   onMount(() => {
@@ -257,7 +260,8 @@
         findActive = 0;
         editor.view.updateState(state);
         clearFind(editor.view);
-        requestAnimationFrame(() => refreshRenderedImages(element));
+        const root = element;
+        requestAnimationFrame(() => refreshRenderedImages(root));
       },
       serializeState: (state) => markdownManager.serialize(state.doc.toJSON()),
       serializeNode: (node) => markdownManager.serialize(node.toJSON()),

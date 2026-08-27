@@ -4,7 +4,7 @@ import { get } from 'svelte/store';
 import { markdownImageUrl } from '../../images/localImage';
 import { tabsState } from '../../tabs/tabStore';
 
-async function renderedSource(markdownSrc: string): Promise<string> {
+export async function renderedSource(markdownSrc: string): Promise<string> {
   if (/^https?:\/\//i.test(markdownSrc)) return markdownSrc;
   if (!markdownSrc || /^(?:data|blob|javascript):/i.test(markdownSrc)) return '';
 
@@ -14,7 +14,7 @@ async function renderedSource(markdownSrc: string): Promise<string> {
   return markdownImageUrl(markdownSrc, tab.path);
 }
 
-async function updateElement(element: HTMLImageElement, markdownSrc: string): Promise<void> {
+export async function updateElement(element: HTMLImageElement, markdownSrc: string): Promise<void> {
   element.dataset.markdownSrc = markdownSrc;
   const source = await renderedSource(markdownSrc).catch(() => '');
   if (element.dataset.markdownSrc !== markdownSrc) return;

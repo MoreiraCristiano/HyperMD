@@ -57,15 +57,16 @@ function translateLegacyUntitledName(name: string | undefined): string {
   return legacy[1] ? `Untitled ${legacy[1]}.md` : 'Untitled.md';
 }
 
-class DocumentManager {
+export class DocumentManager {
   private editor: EditorApi | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | undefined;
   private autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private autoSaveEnabled = false;
   private untitledIndex = 1;
+  private unsubscribeSettings: () => void;
 
   constructor() {
-    settingsStore.subscribe((settings) => {
+    this.unsubscribeSettings = settingsStore.subscribe((settings) => {
       const enabled = settings.files.autoSave;
       const wasEnabled = this.autoSaveEnabled;
       this.autoSaveEnabled = enabled;
@@ -76,6 +77,14 @@ class DocumentManager {
         for (const tab of get(tabsState).tabs) this.scheduleAutoSave(tab);
       }
     });
+  }
+
+  dispose(): void {
+    clearTimeout(this.persistTimer);
+    for (const timer of this.autoSaveTimers.values()) clearTimeout(timer);
+    this.autoSaveTimers.clear();
+    this.unsubscribeSettings();
+    this.editor = null;
   }
 
   attachEditor(editor: EditorApi): void {

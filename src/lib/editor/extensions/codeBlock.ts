@@ -49,7 +49,7 @@ const findRangesField = StateField.define<CodeMirrorDecorationSet>({
   provide: (field) => CodeMirrorEditorView.decorations.from(field),
 });
 
-class CodeMirrorBlockView implements NodeView {
+export class CodeMirrorBlockView implements NodeView {
   dom: HTMLElement;
   private node: ProseMirrorNode;
   private readonly outerView: ProseMirrorEditorView;
@@ -257,7 +257,7 @@ class CodeMirrorBlockView implements NodeView {
   }
 }
 
-function minimalChange(
+export function minimalChange(
   previous: string,
   next: string,
 ): { from: number; to: number; insert: string } | null {
