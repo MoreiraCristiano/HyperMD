@@ -71,6 +71,7 @@
   <span
     class="tree-icon"
     class:folder={node.isDirectory}
+    class:markdown={node.type === 'markdown'}
     class:image={node.type === 'image'}
     aria-hidden="true"
   >
@@ -79,6 +80,10 @@
     {:else if node.type === 'image'}
       <svg viewBox="0 0 16 16"
         ><path d="M2 2.5h12v11H2zM4.5 5.5h.01M3.5 11l3-3 2 2 1.5-1.5 2.5 2.5" /></svg
+      >
+    {:else if node.type === 'markdown'}
+      <svg viewBox="0 0 16 16"
+        ><path d="M1.5 3h13v10h-13zM3.5 10.5v-5l2 2.5 2-2.5v5M10 5.5v5M8.5 9l1.5 1.5L11.5 9" /></svg
       >
     {:else}
       <svg viewBox="0 0 16 16"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4" /></svg>

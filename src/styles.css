@@ -661,6 +661,9 @@ body.resizing-sidebar {
 .tree-icon.folder {
   color: #a88764;
 }
+.tree-icon.markdown {
+  color: #70a4d2;
+}
 .tree-icon.image {
   color: #83a9c9;
 }
