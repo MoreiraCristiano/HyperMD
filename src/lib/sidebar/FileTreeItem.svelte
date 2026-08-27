@@ -6,13 +6,10 @@
     node: FileNode;
     level: number;
     activePath: string | null;
-    selectedPath: string | null;
-    onToggle: (node: FileNode) => void;
-    onOpenFile: (node: FileNode) => void;
-    onSelectDirectory: (node: FileNode) => void;
-    onSelectFile: (node: FileNode) => void;
+    selectedPaths: ReadonlySet<string>;
+    draggedPaths: ReadonlySet<string>;
+    onActivate: (node: FileNode, event: MouseEvent) => void;
     onContextMenu: (node: FileNode, event: MouseEvent) => void;
-    draggedPath: string | null;
     dropTargetPath: string | null;
     onDragStart: (node: FileNode, event: DragEvent) => void;
     onDragEnd: () => void;
@@ -25,13 +22,10 @@
     node,
     level,
     activePath,
-    selectedPath,
-    onToggle,
-    onOpenFile,
-    onSelectDirectory,
-    onSelectFile,
+    selectedPaths,
+    draggedPaths,
+    onActivate,
     onContextMenu,
-    draggedPath,
     dropTargetPath,
     onDragStart,
     onDragEnd,
@@ -40,22 +34,16 @@
     onDrop,
   }: Props = $props();
 
-  function activate() {
-    if (node.isDirectory) {
-      onSelectDirectory(node);
-      onToggle(node);
-    } else {
-      onSelectFile(node);
-      onOpenFile(node);
-    }
+  function activate(event: MouseEvent) {
+    onActivate(node, event);
   }
 </script>
 
 <button
   class="tree-item"
   class:active={activePath === node.path}
-  class:selected={selectedPath === node.path}
-  class:dragging={draggedPath === node.path}
+  class:selected={selectedPaths.has(node.path)}
+  class:dragging={draggedPaths.has(node.path)}
   class:drop-target={node.isDirectory && dropTargetPath === node.path}
   style:padding-left={`${7 + level * 13}px`}
   draggable="true"
@@ -72,7 +60,7 @@
   }}
   title={node.path}
   role="treeitem"
-  aria-selected={activePath === node.path}
+  aria-selected={selectedPaths.has(node.path)}
   aria-expanded={node.isDirectory ? node.expanded : undefined}
 >
   <span class="tree-chevron" class:expanded={node.expanded}>
@@ -105,13 +93,10 @@
     nodes={node.children}
     level={level + 1}
     {activePath}
-    {selectedPath}
-    {onToggle}
-    {onOpenFile}
-    {onSelectDirectory}
-    {onSelectFile}
+    {selectedPaths}
+    {draggedPaths}
+    {onActivate}
     {onContextMenu}
-    {draggedPath}
     {dropTargetPath}
     {onDragStart}
     {onDragEnd}

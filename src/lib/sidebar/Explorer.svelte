@@ -12,13 +12,14 @@
     chooseWorkspace,
     createMarkdownFile,
     createWorkspaceFolder,
-    moveWorkspaceEntry,
+    moveWorkspaceEntries,
     pathName,
     readWorkspaceDirectory,
     relativeWorkspacePath,
     removeWorkspaceEntry,
     renameWorkspaceEntry,
     type FileNode,
+    type WorkspaceMove,
   } from './workspace';
 
   type Props = {
@@ -56,19 +57,27 @@
     { id: 'new-folder', label: 'New Folder' },
     { id: 'refresh', label: 'Refresh', separatorBefore: true },
   ];
+  const multiContextItems: readonly SidebarContextMenuItem[] = [
+    { id: 'move', label: 'Move' },
+    { id: 'delete', label: 'Delete', danger: true },
+  ];
 
   let { activePath, onOpenFile, onBeforeDelete, onDeleted, onRenamed, onError }: Props = $props();
   let entries = $state<FileNode[]>([]);
-  let selectedNode = $state<FileNode | null>(null);
+  let selectedPaths = $state<string[]>([]);
+  let selectionAnchorPath = $state<string | null>(null);
   let selectedDirectory = $state<string | null>(null);
   let loading = $state(false);
   let handledWorkspaceRequest = 0;
   let loadedWorkspacePath: string | null = null;
   let handledRefreshRequest = 0;
   let contextMenu = $state<ContextMenuState | null>(null);
-  let draggedNode = $state<FileNode | null>(null);
+  let draggedNodes = $state<FileNode[]>([]);
+  let draggedPaths = $state<string[]>([]);
   let dropTargetPath = $state<string | null>(null);
   let contextMenuId = 0;
+  let selectedPathSet = $derived(new Set(selectedPaths));
+  let draggedPathSet = $derived(new Set(draggedPaths));
 
   async function run(action: () => Promise<void>) {
     try {
@@ -90,6 +99,7 @@
     loading = true;
     try {
       entries = await readWorkspaceDirectory(root, root);
+      clearSelection();
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -99,7 +109,14 @@
 
   async function toggleDirectory(node: FileNode) {
     node.expanded = !node.expanded;
-    if (!node.expanded || node.loaded || node.loading) return;
+    if (!node.expanded) {
+      selectedPaths = selectedPaths.filter((path) => !isDescendantPath(node.path, path));
+      if (selectionAnchorPath && isDescendantPath(node.path, selectionAnchorPath)) {
+        selectionAnchorPath = node.path;
+      }
+      return;
+    }
+    if (node.loaded || node.loading) return;
     const root = $sidebarState.workspacePath;
     if (!root) return;
     node.loading = true;
@@ -128,17 +145,119 @@
     return normalizedPath(left) === normalizedPath(right);
   }
 
+  function isDescendantPath(parent: string, path: string): boolean {
+    const normalizedParent = normalizedPath(parent);
+    const normalizedChild = normalizedPath(path);
+    return (
+      normalizedChild !== normalizedParent && normalizedChild.startsWith(`${normalizedParent}/`)
+    );
+  }
+
   function parentPath(path: string): string {
     return path.replace(/[\\/][^\\/]+$/, '');
   }
 
+  function findNode(nodes: FileNode[], path: string): FileNode | null {
+    for (const node of nodes) {
+      if (samePath(node.path, path)) return node;
+      const nested = findNode(node.children, path);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function visibleNodes(nodes: FileNode[] = entries): FileNode[] {
+    const visible: FileNode[] = [];
+    for (const node of nodes) {
+      visible.push(node);
+      if (node.isDirectory && node.expanded) visible.push(...visibleNodes(node.children));
+    }
+    return visible;
+  }
+
+  function nodesForPaths(paths: readonly string[]): FileNode[] {
+    const requested = new Set(paths);
+    const matches: FileNode[] = [];
+    function visit(nodes: FileNode[]) {
+      for (const node of nodes) {
+        if (requested.has(node.path)) matches.push(node);
+        if (node.children.length) visit(node.children);
+      }
+    }
+    visit(entries);
+    return matches;
+  }
+
+  function selectedOperationNodes(): FileNode[] {
+    const selected = new Set(selectedPaths);
+    const matches: FileNode[] = [];
+    function visit(nodes: FileNode[], selectedAncestor: boolean) {
+      for (const node of nodes) {
+        const isSelected = selected.has(node.path);
+        if (isSelected && !selectedAncestor) matches.push(node);
+        if (node.children.length) {
+          visit(node.children, selectedAncestor || (isSelected && node.isDirectory));
+        }
+      }
+    }
+    visit(entries, false);
+    return matches;
+  }
+
+  function setSingleSelection(node: FileNode) {
+    selectedPaths = [node.path];
+    selectionAnchorPath = node.path;
+    selectedDirectory = node.isDirectory ? node.path : parentPath(node.path);
+  }
+
+  function clearSelection() {
+    selectedPaths = [];
+    selectionAnchorPath = null;
+    selectedDirectory = $sidebarState.workspacePath;
+  }
+
+  function updateSelectionForClick(node: FileNode, event: MouseEvent): boolean {
+    const additive = event.ctrlKey || event.metaKey;
+    if (event.shiftKey) {
+      const visible = visibleNodes();
+      const anchorIndex = visible.findIndex((candidate) => candidate.path === selectionAnchorPath);
+      const targetIndex = visible.findIndex((candidate) => samePath(candidate.path, node.path));
+      if (anchorIndex === -1 || targetIndex === -1) {
+        setSingleSelection(node);
+      } else {
+        const start = Math.min(anchorIndex, targetIndex);
+        const end = Math.max(anchorIndex, targetIndex);
+        const range = visible.slice(start, end + 1).map((candidate) => candidate.path);
+        selectedPaths = additive ? [...new Set([...selectedPaths, ...range])] : range;
+        selectedDirectory = node.isDirectory ? node.path : parentPath(node.path);
+      }
+      return true;
+    }
+    if (additive) {
+      selectedPaths = selectedPathSet.has(node.path)
+        ? selectedPaths.filter((path) => path !== node.path)
+        : [...selectedPaths, node.path];
+      selectionAnchorPath = node.path;
+      selectedDirectory = node.isDirectory ? node.path : parentPath(node.path);
+      return true;
+    }
+    setSingleSelection(node);
+    return false;
+  }
+
   function canDropInto(destination: string): boolean {
-    const source = draggedNode;
-    if (!source || samePath(parentPath(source.path), destination)) return false;
-    if (!source.isDirectory) return true;
-    const sourcePath = normalizedPath(source.path);
     const destinationPath = normalizedPath(destination);
-    return destinationPath !== sourcePath && !destinationPath.startsWith(`${sourcePath}/`);
+    if (!draggedNodes.length) return false;
+    if (
+      draggedNodes.some((source) => {
+        if (!source.isDirectory) return false;
+        const sourcePath = normalizedPath(source.path);
+        return destinationPath === sourcePath || destinationPath.startsWith(`${sourcePath}/`);
+      })
+    ) {
+      return false;
+    }
+    return draggedNodes.some((source) => !samePath(parentPath(source.path), destination));
   }
 
   function compareNodes(left: FileNode, right: FileNode): number {
@@ -176,25 +295,43 @@
         target.children.sort(compareNodes);
       }
     }
-    selectedNode = node;
-    selectedDirectory = node.isDirectory ? node.path : destination;
   }
 
-  async function moveNodeToDirectory(node: FileNode, destination: string) {
+  function rewriteSelectionAfterMoves(moves: readonly WorkspaceMove[]) {
+    function rewritten(path: string): string {
+      const move = moves.find(
+        (candidate) => samePath(candidate.path, path) || isDescendantPath(candidate.path, path),
+      );
+      return move ? `${move.newPath}${path.slice(move.path.length)}` : path;
+    }
+    selectedPaths = selectedPaths.map(rewritten);
+    if (selectionAnchorPath) selectionAnchorPath = rewritten(selectionAnchorPath);
+  }
+
+  async function moveNodesToDirectory(nodes: readonly FileNode[], destination: string) {
     const root = $sidebarState.workspacePath;
-    if (!root) return;
+    if (!root || !nodes.length) return;
     await run(async () => {
-      const oldPath = node.path;
       const requestedDirectory = relativeWorkspacePath(root, destination) || '.';
-      const newPath = await moveWorkspaceEntry(root, oldPath, requestedDirectory);
-      if (samePath(newPath, oldPath)) return;
-      applyTreeMove(oldPath, newPath, destination);
-      onRenamed(oldPath, newPath, node.isDirectory);
+      const result = await moveWorkspaceEntries(
+        root,
+        nodes.map((node) => ({ path: node.path, isDirectory: node.isDirectory })),
+        requestedDirectory,
+      );
+      for (const move of result.moved) {
+        applyTreeMove(move.path, move.newPath, destination);
+        onRenamed(move.path, move.newPath, move.isDirectory);
+      }
+      rewriteSelectionAfterMoves(result.moved);
+      selectedDirectory = destination;
+      if (result.error) throw result.error;
     });
   }
 
   function beginDrag(node: FileNode, event: DragEvent) {
-    draggedNode = node;
+    if (!selectedPathSet.has(node.path)) setSingleSelection(node);
+    draggedNodes = selectedOperationNodes();
+    draggedPaths = [...selectedPaths];
     dropTargetPath = null;
     contextMenu = null;
     if (event.dataTransfer) {
@@ -204,7 +341,8 @@
   }
 
   function endDrag() {
-    draggedNode = null;
+    draggedNodes = [];
+    draggedPaths = [];
     dropTargetPath = null;
   }
 
@@ -228,10 +366,10 @@
   function dropOnNode(node: FileNode, event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
-    const source = draggedNode;
-    const valid = source && node.isDirectory && canDropInto(node.path);
+    const sources = draggedNodes;
+    const valid = sources.length > 0 && node.isDirectory && canDropInto(node.path);
     endDrag();
-    if (source && valid) void moveNodeToDirectory(source, node.path);
+    if (valid) void moveNodesToDirectory(sources, node.path);
   }
 
   function dragOverRoot(event: DragEvent) {
@@ -254,11 +392,11 @@
   function dropOnRoot(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
-    const source = draggedNode;
+    const sources = draggedNodes;
     const root = $sidebarState.workspacePath;
-    const valid = source && root && canDropInto(root);
+    const valid = sources.length > 0 && root && canDropInto(root);
     endDrag();
-    if (source && root && valid) void moveNodeToDirectory(source, root);
+    if (root && valid) void moveNodesToDirectory(sources, root);
   }
 
   async function refreshDirectory(path: string) {
@@ -279,6 +417,7 @@
   }
 
   function operationDirectory(): string | null {
+    if (selectedPaths.length !== 1) return $sidebarState.workspacePath;
     return selectedDirectory ?? $sidebarState.workspacePath;
   }
 
@@ -321,7 +460,8 @@
 
   async function renameSelected() {
     const root = $sidebarState.workspacePath;
-    const node = selectedNode;
+    const nodes = nodesForPaths(selectedPaths);
+    const node = nodes.length === 1 ? nodes[0] : null;
     if (!root || !node) return;
     const name = await dialogService.prompt({
       title: 'Rename',
@@ -340,19 +480,20 @@
         node.type,
       );
       onRenamed(node.path, newPath, node.isDirectory);
-      selectedNode = null;
-      selectedDirectory = root;
       await loadRoot();
     });
   }
 
   async function moveSelected() {
     const root = $sidebarState.workspacePath;
-    const node = selectedNode;
-    if (!root || !node) return;
+    const nodes = selectedOperationNodes();
+    if (!root || !nodes.length) return;
     const destination = await dialogService.prompt({
       title: 'Move',
-      message: 'Enter a destination folder relative to the workspace. Use . for the root.',
+      message:
+        nodes.length === 1
+          ? 'Enter a destination folder relative to the workspace. Use . for the root.'
+          : `Move ${nodes.length} selected items. Enter a destination folder relative to the workspace.`,
       label: 'Destination folder',
       value: '.',
       confirmLabel: 'Move',
@@ -364,41 +505,51 @@
       !relativeDestination || relativeDestination === '.'
         ? root
         : `${root.replace(/[\\/]+$/, '')}/${relativeDestination}`;
-    await moveNodeToDirectory(node, destinationPath);
+    await moveNodesToDirectory(nodes, destinationPath);
   }
 
   async function deleteSelected() {
     const root = $sidebarState.workspacePath;
-    const node = selectedNode;
-    if (!root || !node) return;
-    const label = node.isDirectory
-      ? `the folder “${node.name}” and all its contents`
-      : `“${node.name}”`;
+    const nodes = selectedOperationNodes();
+    if (!root || !nodes.length) return;
+    const single = nodes.length === 1 ? nodes[0] : null;
+    const label = single
+      ? single.isDirectory
+        ? `the folder “${single.name}” and all its contents`
+        : `“${single.name}”`
+      : `${nodes.length} selected items${nodes.some((node) => node.isDirectory) ? ', including folder contents' : ''}`;
     const confirmed = await dialogService.confirm({
-      title: node.isDirectory ? 'Delete Folder' : 'Delete File',
+      title: single
+        ? single.isDirectory
+          ? 'Delete Folder'
+          : 'Delete File'
+        : 'Delete Selected Items',
       message: `Delete ${label}? This action cannot be undone.`,
       confirmLabel: 'Delete',
       tone: 'danger',
     });
     if (!confirmed) return;
-    if (!(await onBeforeDelete(node.path, node.isDirectory))) return;
+    for (const node of nodes) {
+      if (!(await onBeforeDelete(node.path, node.isDirectory))) return;
+    }
     await run(async () => {
-      await removeWorkspaceEntry(root, node.path, node.isDirectory);
-      onDeleted(node.path, node.isDirectory);
-      selectedNode = null;
-      selectedDirectory = root;
-      await loadRoot();
+      for (const node of nodes) {
+        await removeWorkspaceEntry(root, node.path, node.isDirectory);
+        detachNode(entries, node.path);
+        selectedPaths = selectedPaths.filter(
+          (path) => !samePath(path, node.path) && !isDescendantPath(node.path, path),
+        );
+        onDeleted(node.path, node.isDirectory);
+      }
+      clearSelection();
     });
   }
 
-  function selectDirectory(node: FileNode) {
-    selectedNode = node;
-    selectedDirectory = node.path;
-  }
-
-  function selectFile(node: FileNode) {
-    selectedNode = node;
-    selectedDirectory = node.path.replace(/[\\/][^\\/]+$/, '');
+  function activateNode(node: FileNode, event: MouseEvent) {
+    const selectionOnly = updateSelectionForClick(node, event);
+    if (selectionOnly) return;
+    if (node.isDirectory) void toggleDirectory(node);
+    else openFile(node);
   }
 
   function openFile(node: FileNode) {
@@ -406,8 +557,7 @@
   }
 
   function openNodeContextMenu(node: FileNode, event: MouseEvent) {
-    if (node.isDirectory) selectDirectory(node);
-    else selectFile(node);
+    if (!selectedPathSet.has(node.path)) setSingleSelection(node);
     contextMenu = {
       id: ++contextMenuId,
       x: event.clientX,
@@ -425,8 +575,7 @@
     if (!root) return;
     event.preventDefault();
     target instanceof Element && target.closest<HTMLElement>('button')?.focus();
-    selectedNode = null;
-    selectedDirectory = root;
+    clearSelection();
     contextMenu = {
       id: ++contextMenuId,
       x: event.clientX,
@@ -437,6 +586,7 @@
 
   function contextItems(node: FileNode | null): readonly SidebarContextMenuItem[] {
     if (!node) return rootContextItems;
+    if (selectedPaths.length > 1) return multiContextItems;
     return node.isDirectory ? folderContextItems : fileContextItems;
   }
 
@@ -460,6 +610,40 @@
     void loadRoot();
   }
 
+  function selectAllVisible() {
+    const visible = visibleNodes();
+    selectedPaths = visible.map((node) => node.path);
+    selectionAnchorPath = visible.at(-1)?.path ?? null;
+    selectedDirectory = $sidebarState.workspacePath;
+  }
+
+  function handleExplorerKeydown(event: KeyboardEvent) {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest('input, textarea, select, [contenteditable="true"], .sidebar-context-menu')
+    ) {
+      return;
+    }
+    const command = event.ctrlKey || event.metaKey;
+    if (command && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      event.stopPropagation();
+      selectAllVisible();
+    } else if (event.key === 'Delete' && selectedPaths.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      void deleteSelected();
+    }
+  }
+
+  function clearSelectionFromBlankArea(event: MouseEvent) {
+    const target = event.target;
+    if (target instanceof Element && target.closest('.tree-item')) return;
+    clearSelection();
+    if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+  }
+
   $effect(() => {
     const request = $workspacePickerRequest;
     if (request > handledWorkspaceRequest) {
@@ -480,8 +664,10 @@
     if (path === loadedWorkspacePath) return;
     loadedWorkspacePath = path;
     selectedDirectory = path;
-    selectedNode = null;
+    selectedPaths = [];
+    selectionAnchorPath = null;
     contextMenu = null;
+    endDrag();
     entries = [];
     if (path) void loadRoot();
   });
@@ -506,8 +692,7 @@
         class="workspace-label"
         class:drop-target={dropTargetPath === $sidebarState.workspacePath}
         onclick={() => {
-          selectedDirectory = $sidebarState.workspacePath;
-          selectedNode = null;
+          clearSelection();
         }}
         ondragover={dragOverRoot}
         ondragleave={dragLeaveRoot}
@@ -530,24 +715,25 @@
     </div>
     <div
       class="explorer-tree"
-      role="group"
+      role="tree"
       aria-label="Workspace files"
+      aria-multiselectable="true"
+      tabindex="0"
       class:loading
       class:drop-target-root={dropTargetPath === $sidebarState.workspacePath}
       ondragover={dragOverRoot}
       ondragleave={dragLeaveRoot}
       ondrop={dropOnRoot}
+      onclick={clearSelectionFromBlankArea}
+      onkeydown={handleExplorerKeydown}
     >
       <FileTree
         nodes={entries}
         {activePath}
-        selectedPath={selectedNode?.path ?? null}
-        onToggle={(node) => void toggleDirectory(node)}
-        onOpenFile={openFile}
-        onSelectDirectory={selectDirectory}
-        onSelectFile={selectFile}
+        selectedPaths={selectedPathSet}
+        draggedPaths={draggedPathSet}
+        onActivate={activateNode}
         onContextMenu={openNodeContextMenu}
-        draggedPath={draggedNode?.path ?? null}
         {dropTargetPath}
         onDragStart={beginDrag}
         onDragEnd={endDrag}

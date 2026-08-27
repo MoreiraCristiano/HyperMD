@@ -481,6 +481,11 @@ body.resizing-sidebar {
   flex: 1;
   overflow: auto;
   padding: 3px 0;
+  outline: none;
+}
+.explorer-tree:focus-visible {
+  outline: 1px solid #4d3c60;
+  outline-offset: -1px;
 }
 .explorer-tree.loading {
   opacity: 0.55;
@@ -528,9 +533,7 @@ body.resizing-sidebar {
 .tree-item:hover {
   background: #292928;
 }
-.tree-item.selected {
-  background: #30302f;
-}
+.tree-item.selected,
 .tree-item.active {
   background: #3a3045;
   color: #f0eaf5;

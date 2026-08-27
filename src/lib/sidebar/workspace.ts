@@ -31,6 +31,20 @@ export type SearchResult = {
   snippet: string;
 };
 
+export type WorkspaceEntryRef = {
+  path: string;
+  isDirectory: boolean;
+};
+
+export type WorkspaceMove = WorkspaceEntryRef & {
+  newPath: string;
+};
+
+export type WorkspaceMoveBatchResult = {
+  moved: WorkspaceMove[];
+  error: unknown | null;
+};
+
 const MAX_SEARCH_RESULTS = 200;
 const MAX_SEARCH_FILE_SIZE = 1024 * 1024;
 
@@ -178,7 +192,20 @@ export async function moveWorkspaceEntry(
   oldPath: string,
   requestedDirectory: string,
 ): Promise<string> {
-  assertInsideWorkspace(root, oldPath);
+  const result = await moveWorkspaceEntries(
+    root,
+    [{ path: oldPath, isDirectory: false }],
+    requestedDirectory,
+  );
+  if (result.error) throw result.error;
+  return result.moved[0]?.newPath ?? oldPath;
+}
+
+export async function moveWorkspaceEntries(
+  root: string,
+  entries: readonly WorkspaceEntryRef[],
+  requestedDirectory: string,
+): Promise<WorkspaceMoveBatchResult> {
   const relativeDirectory = requestedDirectory.trim().replace(/\\/g, '/');
   if (relativeDirectory.split('/').some((part) => part === '..')) {
     throw new Error('Invalid destination. Do not use “..”.');
@@ -189,16 +216,38 @@ export async function moveWorkspaceEntry(
   assertInsideWorkspace(root, destination);
   const destinationInfo = await stat(destination);
   if (!destinationInfo.isDirectory) throw new Error('The destination folder does not exist.');
-  const target = await normalize(await join(destination, await basename(oldPath)));
-  assertInsideWorkspace(root, target);
-  if (normalized(target) === normalized(oldPath)) return oldPath;
-  if (normalized(target).startsWith(`${normalized(oldPath)}/`)) {
-    throw new Error('A folder cannot be moved inside itself.');
+
+  const plans: WorkspaceMove[] = [];
+  const targets = new Set<string>();
+  for (const entry of entries) {
+    assertInsideWorkspace(root, entry.path);
+    const target = await normalize(await join(destination, await basename(entry.path)));
+    assertInsideWorkspace(root, target);
+    if (normalized(target) === normalized(entry.path)) continue;
+    if (normalized(target).startsWith(`${normalized(entry.path)}/`)) {
+      throw new Error('A folder cannot be moved inside itself.');
+    }
+    const targetKey = normalized(target);
+    if (targets.has(targetKey)) {
+      throw new Error('Multiple selected items have the same name at the destination.');
+    }
+    if (await exists(target)) {
+      throw new Error('An item with this name already exists at the destination.');
+    }
+    targets.add(targetKey);
+    plans.push({ ...entry, newPath: target });
   }
-  if (await exists(target))
-    throw new Error('An item with this name already exists at the destination.');
-  await rename(oldPath, target);
-  return target;
+
+  const moved: WorkspaceMove[] = [];
+  for (const plan of plans) {
+    try {
+      await rename(plan.path, plan.newPath);
+      moved.push(plan);
+    } catch (error) {
+      return { moved, error };
+    }
+  }
+  return { moved, error: null };
 }
 
 export async function removeWorkspaceEntry(

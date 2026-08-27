@@ -6,13 +6,10 @@
     nodes: FileNode[];
     level?: number;
     activePath: string | null;
-    selectedPath: string | null;
-    onToggle: (node: FileNode) => void;
-    onOpenFile: (node: FileNode) => void;
-    onSelectDirectory: (node: FileNode) => void;
-    onSelectFile: (node: FileNode) => void;
+    selectedPaths: ReadonlySet<string>;
+    draggedPaths: ReadonlySet<string>;
+    onActivate: (node: FileNode, event: MouseEvent) => void;
     onContextMenu: (node: FileNode, event: MouseEvent) => void;
-    draggedPath: string | null;
     dropTargetPath: string | null;
     onDragStart: (node: FileNode, event: DragEvent) => void;
     onDragEnd: () => void;
@@ -25,13 +22,10 @@
     nodes,
     level = 0,
     activePath,
-    selectedPath,
-    onToggle,
-    onOpenFile,
-    onSelectDirectory,
-    onSelectFile,
+    selectedPaths,
+    draggedPaths,
+    onActivate,
     onContextMenu,
-    draggedPath,
     dropTargetPath,
     onDragStart,
     onDragEnd,
@@ -41,19 +35,16 @@
   }: Props = $props();
 </script>
 
-<div class="file-tree" role="tree">
+<div class="file-tree" role="group">
   {#each nodes as node (node.path)}
     <FileTreeItem
       {node}
       {level}
       {activePath}
-      {selectedPath}
-      {onToggle}
-      {onOpenFile}
-      {onSelectDirectory}
-      {onSelectFile}
+      {selectedPaths}
+      {draggedPaths}
+      {onActivate}
       {onContextMenu}
-      {draggedPath}
       {dropTargetPath}
       {onDragStart}
       {onDragEnd}
