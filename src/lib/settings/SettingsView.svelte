@@ -76,6 +76,18 @@
         />
       </label>
       <label class="setting-row">
+        <span
+          ><strong>Code Block Font</strong><small>Font used by editable fenced code blocks.</small
+          ></span
+        >
+        <input
+          list="code-block-font-suggestions"
+          value={$settingsStore.editor.codeBlockFontFamily}
+          oninput={(event) =>
+            settingsActions.updateEditor({ codeBlockFontFamily: textValue(event) })}
+        />
+      </label>
+      <label class="setting-row">
         <span><strong>Editor Font Size</strong><small>Between 10 and 32 pixels.</small></span>
         <input
           class="numeric-input"
@@ -174,6 +186,9 @@
     {#each fontSuggestions as font}<option value={font}></option>{/each}
   </datalist>
   <datalist id="editor-font-suggestions">
+    {#each fontSuggestions as font}<option value={font}></option>{/each}
+  </datalist>
+  <datalist id="code-block-font-suggestions">
     {#each fontSuggestions as font}<option value={font}></option>{/each}
   </datalist>
 </div>

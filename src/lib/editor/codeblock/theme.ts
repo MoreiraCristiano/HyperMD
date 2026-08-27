@@ -30,7 +30,7 @@ export const codeMirrorTheme = [
         height: 'auto',
         backgroundColor: '#111212',
         color: '#d9d9d6',
-        fontFamily: 'var(--editor-font-family)',
+        fontFamily: 'var(--code-block-font-family)',
         fontSize: '0.82em',
       },
       '&.cm-focused': { outline: 'none' },

@@ -19,6 +19,10 @@ function applyCssVariables(settings: AppSettings): void {
     '--editor-font-family',
     `${settings.editor.fontFamily}, "Segoe UI", sans-serif`,
   );
+  root.style.setProperty(
+    '--code-block-font-family',
+    `${settings.editor.codeBlockFontFamily}, Consolas, monospace`,
+  );
   root.style.setProperty('--editor-font-size', `${settings.editor.fontSize}px`);
   root.style.setProperty('--editor-line-height', String(settings.editor.lineHeight));
   root.style.setProperty(

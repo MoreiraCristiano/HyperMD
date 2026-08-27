@@ -5,6 +5,7 @@ export type AppSettings = {
   };
   editor: {
     fontFamily: string;
+    codeBlockFontFamily: string;
     fontSize: number;
     lineHeight: number;
     maxWidth: number | null;
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   editor: {
     fontFamily: 'Inter, "Segoe UI", sans-serif',
+    codeBlockFontFamily: '"Cascadia Code", Consolas, monospace',
     fontSize: 17,
     lineHeight: 1.72,
     maxWidth: 800,
@@ -66,6 +68,10 @@ export function normalizeSettings(value: unknown): AppSettings {
     },
     editor: {
       fontFamily: fontFamily(editor.fontFamily, DEFAULT_SETTINGS.editor.fontFamily),
+      codeBlockFontFamily: fontFamily(
+        editor.codeBlockFontFamily,
+        DEFAULT_SETTINGS.editor.codeBlockFontFamily,
+      ),
       fontSize: Math.round(clamp(editor.fontSize, 10, 32, DEFAULT_SETTINGS.editor.fontSize)),
       lineHeight:
         Math.round(clamp(editor.lineHeight, 1.2, 2.2, DEFAULT_SETTINGS.editor.lineHeight) * 10) /
