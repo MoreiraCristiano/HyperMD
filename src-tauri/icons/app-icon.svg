@@ -1,5 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#171717"/>
-  <path d="M116 138h72l68 102 68-102h72v236h-68V244l-72 104-72-104v130h-68z" fill="#e8e8e6"/>
-  <path d="M116 104h280v18H116z" fill="#9b76c9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1536">
+  <defs>
+    <radialGradient id="tile" cx="48%" cy="45%" r="72%">
+      <stop offset="0" stop-color="#191726"/>
+      <stop offset=".58" stop-color="#171522"/>
+      <stop offset="1" stop-color="#12111c"/>
+    </radialGradient>
+    <linearGradient id="cursor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8c67ff"/>
+      <stop offset=".45" stop-color="#7651ff"/>
+      <stop offset="1" stop-color="#6945f4"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f7f7f9"/>
+    </linearGradient>
+  </defs>
+  <rect x="154" y="140" width="1228" height="1228" rx="205" fill="url(#tile)"/>
+  <path fill="url(#mark)" d="M363 568Q363 552 379 552H405Q421 552 421 568V724H624V568Q624 552 640 552H674Q684 552 692 561L830 720 968 561Q976 552 986 552H1020Q1036 552 1036 568V930Q1036 946 1020 946H994Q978 946 978 930V664L849 812Q841 822 830 822Q819 822 811 812L682 664V930Q682 946 666 946H640Q624 946 624 930V783H421V930Q421 946 405 946H379Q363 946 363 930Z"/>
+  <rect x="1098" y="536" width="46" height="448" rx="23" fill="url(#cursor)"/>
 </svg>

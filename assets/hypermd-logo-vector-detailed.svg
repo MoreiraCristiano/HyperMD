@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1536">
+<defs>
+  <radialGradient id="tile" cx="48%" cy="45%" r="72%">
+    <stop offset="0" stop-color="#191726"/>
+    <stop offset=".58" stop-color="#171522"/>
+    <stop offset="1" stop-color="#12111c"/>
+  </radialGradient>
+  <linearGradient id="cursor" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#8c67ff"/>
+    <stop offset=".45" stop-color="#7651ff"/>
+    <stop offset="1" stop-color="#6945f4"/>
+  </linearGradient>
+  <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffffff"/>
+    <stop offset="1" stop-color="#f7f7f9"/>
+  </linearGradient>
+</defs>
+
+<!-- Icon tile -->
+<rect x="154" y="140" width="1228" height="1228" rx="205" fill="url(#tile)"/>
+
+<!-- HyperMD HM monogram: H and M share the central stem -->
+<path fill="url(#mark)" d="
+ M363 568
+ Q363 552 379 552
+ H405
+ Q421 552 421 568
+ V724
+ H624
+ V568
+ Q624 552 640 552
+ H674
+ Q684 552 692 561
+ L830 720
+ L968 561
+ Q976 552 986 552
+ H1020
+ Q1036 552 1036 568
+ V930
+ Q1036 946 1020 946
+ H994
+ Q978 946 978 930
+ V664
+ L849 812
+ Q841 822 830 822
+ Q819 822 811 812
+ L682 664
+ V930
+ Q682 946 666 946
+ H640
+ Q624 946 624 930
+ V783
+ H421
+ V930
+ Q421 946 405 946
+ H379
+ Q363 946 363 930
+ Z"/>
+
+<!-- Purple editor cursor -->
+<rect x="1098" y="536" width="46" height="448" rx="23" fill="url(#cursor)"/>
+</svg>
