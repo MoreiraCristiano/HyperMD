@@ -53,29 +53,27 @@
 <header class="sidebar-title">SEARCH</header>
 
 {#if !$sidebarState.workspacePath}
-  <div class="search-empty">Abra uma pasta no Explorer para pesquisar.</div>
+  <div class="search-empty">Open a folder in Explorer to search.</div>
 {:else}
   <div class="search-box">
     <input
       bind:value={query}
       oninput={scheduleSearch}
-      placeholder="Pesquisar em arquivos .md"
-      aria-label="Pesquisar no workspace"
+      placeholder="Search .md files"
+      aria-label="Search workspace"
       spellcheck="false"
     />
   </div>
   {#if query.trim()}
     <div class="search-count">
-      {#if searching}Pesquisando…{:else}{results.length} resultado{results.length === 1
-          ? ''
-          : 's'}{/if}
+      {#if searching}Searching…{:else}{results.length} result{results.length === 1 ? '' : 's'}{/if}
     </div>
   {/if}
   <div class="search-results">
     {#each results as result (result.path)}
       <button onclick={() => onOpenFile(result.path)} title={result.path}>
         <strong>{result.relativePath}</strong>
-        <span>{result.snippet || '(linha vazia)'}</span>
+        <span>{result.snippet || '(empty line)'}</span>
       </button>
     {/each}
   </div>

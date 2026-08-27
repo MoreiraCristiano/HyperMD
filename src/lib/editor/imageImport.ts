@@ -40,7 +40,7 @@ function markdownRelativePath(fromDirectory: string, target: string): string {
   ) {
     common += 1;
   }
-  if (common === 0) throw new Error('Não foi possível criar um caminho relativo para a imagem.');
+  if (common === 0) throw new Error('Could not create a relative path for the image.');
   const parts = [...Array(from.length - common).fill('..'), ...to.slice(common)];
   const relative = parts.join('/');
   return relative.startsWith('../') ? relative : `./${relative}`;
@@ -53,9 +53,9 @@ export async function saveClipboardImage(
 ): Promise<ImportedImage> {
   const mime = blob.type.toLowerCase();
   const extension = MIME_EXTENSIONS[mime];
-  if (!extension) throw new Error(`Formato de imagem não suportado: ${mime || 'desconhecido'}.`);
-  if (blob.size === 0) throw new Error('A imagem do clipboard está vazia.');
-  if (blob.size > MAX_IMAGE_SIZE) throw new Error('A imagem excede o limite de 50 MB.');
+  if (!extension) throw new Error(`Unsupported image format: ${mime || 'unknown'}.`);
+  if (blob.size === 0) throw new Error('The clipboard image is empty.');
+  if (blob.size > MAX_IMAGE_SIZE) throw new Error('The image exceeds the 50 MB limit.');
 
   const root = await normalize(workspaceRoot);
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -66,7 +66,7 @@ export async function saveClipboardImage(
     const filename = `${baseName}${suffix}.${extension}`;
     const absolutePath = await normalize(await join(root, filename));
     if (!isInsideWorkspace(root, absolutePath)) {
-      throw new Error('Operação recusada fora do workspace.');
+      throw new Error('Operation denied outside the workspace.');
     }
 
     let file;
@@ -82,7 +82,7 @@ export async function saveClipboardImage(
       let written = 0;
       while (written < bytes.byteLength) {
         const count = await file.write(bytes.subarray(written));
-        if (count === 0) throw new Error('A gravação da imagem foi interrompida.');
+        if (count === 0) throw new Error('Writing the image was interrupted.');
         written += count;
       }
     } catch (cause) {
@@ -92,7 +92,7 @@ export async function saveClipboardImage(
     }
     if (failure) {
       await remove(absolutePath).catch(() => {});
-      throw new Error('Não foi possível gravar a imagem no workspace.', { cause: failure });
+      throw new Error('Could not write the image to the workspace.', { cause: failure });
     }
 
     const documentDirectory = documentPath ? await dirname(documentPath) : root;
@@ -102,5 +102,5 @@ export async function saveClipboardImage(
     };
   }
 
-  throw new Error('Não foi possível gerar um nome livre para a imagem.');
+  throw new Error('Could not generate an available image name.');
 }

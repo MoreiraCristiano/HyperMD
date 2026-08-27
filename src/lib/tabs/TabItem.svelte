@@ -36,7 +36,7 @@
   onauxclick={(event) => {
     if (event.button === 1) close(event);
   }}
-  title={`${tab.path ?? tab.name}${tab.missing ? ' — arquivo ausente' : ''}`}
+  title={`${tab.path ?? tab.name}${tab.missing ? ' — missing file' : ''}`}
   role="tab"
   aria-selected={active}
   tabindex={active ? 0 : -1}
@@ -59,9 +59,9 @@
     </svg>
   {/if}
   <span class="tab-name">{tab.name}</span>
-  {#if tab.missing}<span class="tab-missing" title="Arquivo ausente">!</span>{/if}
-  {#if tab.dirty}<span class="tab-dirty" title="Alterações não salvas">●</span>{/if}
-  <button class="tab-close" onclick={close} title="Fechar" aria-label={`Fechar ${tab.name}`}>
+  {#if tab.missing}<span class="tab-missing" title="Missing file">!</span>{/if}
+  {#if tab.dirty}<span class="tab-dirty" title="Unsaved changes">●</span>{/if}
+  <button class="tab-close" onclick={close} title="Close" aria-label={`Close ${tab.name}`}>
     <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
   </button>
 </div>

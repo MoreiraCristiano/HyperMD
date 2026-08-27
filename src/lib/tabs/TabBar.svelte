@@ -19,7 +19,7 @@
   data-tauri-drag-region
   onwheel={horizontalWheel}
   role="tablist"
-  aria-label="Arquivos abertos"
+  aria-label="Open files"
 >
   {#each $tabsState.tabs as tab (tab.id)}
     <TabItem {tab} active={tab.id === $tabsState.activeId} {onError} />

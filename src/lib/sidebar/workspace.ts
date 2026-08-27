@@ -39,7 +39,7 @@ export async function chooseWorkspace(): Promise<string | null> {
     directory: true,
     multiple: false,
     recursive: true,
-    title: 'Selecionar workspace',
+    title: 'Select Workspace',
   });
 }
 
@@ -64,15 +64,15 @@ export function isInsideWorkspace(root: string, path: string): boolean {
 }
 
 function assertInsideWorkspace(root: string, path: string): void {
-  if (!isInsideWorkspace(root, path)) throw new Error('Operação recusada fora do workspace.');
+  if (!isInsideWorkspace(root, path)) throw new Error('Operation denied outside the workspace.');
 }
 
 function validateEntryName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed || trimmed === '.' || trimmed === '..' || /[\\/]/.test(trimmed)) {
-    throw new Error('Nome inválido. Não use caminhos ou separadores.');
+    throw new Error('Invalid name. Do not use paths or separators.');
   }
-  if (trimmed.startsWith('.')) throw new Error('Arquivos ocultos não são suportados no Explorer.');
+  if (trimmed.startsWith('.')) throw new Error('Hidden files are not supported in Explorer.');
   return trimmed;
 }
 
@@ -130,7 +130,7 @@ export async function createMarkdownFile(
 ): Promise<string> {
   const name = requestedName.toLowerCase().endsWith('.md') ? requestedName : `${requestedName}.md`;
   const path = childPath(root, parent, name);
-  if (await exists(path)) throw new Error('Já existe um item com esse nome.');
+  if (await exists(path)) throw new Error('An item with this name already exists.');
   await writeTextFile(path, '');
   return path;
 }
@@ -141,7 +141,7 @@ export async function createWorkspaceFolder(
   name: string,
 ): Promise<string> {
   const path = childPath(root, parent, name);
-  if (await exists(path)) throw new Error('Já existe um item com esse nome.');
+  if (await exists(path)) throw new Error('An item with this name already exists.');
   await mkdir(path);
   return path;
 }
@@ -161,13 +161,13 @@ export async function renameWorkspaceEntry(
     const requestedExtension = fileExtension(name);
     if (!requestedExtension) name += `.${originalExtension}`;
     else if (requestedExtension !== originalExtension) {
-      throw new Error('Renomear não converte imagens. Mantenha a extensão original.');
+      throw new Error('Renaming does not convert images. Keep the original extension.');
     }
   }
   const parent = oldPath.replace(/[\\/][^\\/]+$/, '');
   const newPath = childPath(root, parent, name);
   if (normalized(newPath) !== normalized(oldPath) && (await exists(newPath))) {
-    throw new Error('Já existe um item com esse nome.');
+    throw new Error('An item with this name already exists.');
   }
   await rename(oldPath, newPath);
   return newPath;
@@ -181,21 +181,22 @@ export async function moveWorkspaceEntry(
   assertInsideWorkspace(root, oldPath);
   const relativeDirectory = requestedDirectory.trim().replace(/\\/g, '/');
   if (relativeDirectory.split('/').some((part) => part === '..')) {
-    throw new Error('Destino inválido. Não use “..”.');
+    throw new Error('Invalid destination. Do not use “..”.');
   }
   const destination = await normalize(
     relativeDirectory && relativeDirectory !== '.' ? await join(root, relativeDirectory) : root,
   );
   assertInsideWorkspace(root, destination);
   const destinationInfo = await stat(destination);
-  if (!destinationInfo.isDirectory) throw new Error('A pasta de destino não existe.');
+  if (!destinationInfo.isDirectory) throw new Error('The destination folder does not exist.');
   const target = await normalize(await join(destination, await basename(oldPath)));
   assertInsideWorkspace(root, target);
   if (normalized(target) === normalized(oldPath)) return oldPath;
   if (normalized(target).startsWith(`${normalized(oldPath)}/`)) {
-    throw new Error('Não é possível mover uma pasta para dentro dela mesma.');
+    throw new Error('A folder cannot be moved inside itself.');
   }
-  if (await exists(target)) throw new Error('Já existe um item com esse nome no destino.');
+  if (await exists(target))
+    throw new Error('An item with this name already exists at the destination.');
   await rename(oldPath, target);
   return target;
 }
@@ -206,7 +207,7 @@ export async function removeWorkspaceEntry(
   isDirectory: boolean,
 ): Promise<void> {
   assertInsideWorkspace(root, path);
-  if (normalized(root) === normalized(path)) throw new Error('Não é possível excluir o workspace.');
+  if (normalized(root) === normalized(path)) throw new Error('The workspace cannot be deleted.');
   await remove(path, { recursive: isDirectory });
 }
 

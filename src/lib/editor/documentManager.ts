@@ -50,6 +50,12 @@ function pathMatches(path: string | null, target: string, directory: boolean): b
   return candidate === base || (directory && candidate.startsWith(`${base}/`));
 }
 
+function translateLegacyUntitledName(name: string | undefined): string {
+  const legacy = name?.match(/^\u0053\u0065\u006d \u0074\u00edtulo(?: (\d+))?\.md$/);
+  if (!legacy) return name || 'Untitled.md';
+  return legacy[1] ? `Untitled ${legacy[1]}.md` : 'Untitled.md';
+}
+
 class DocumentManager {
   private editor: EditorApi | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -83,7 +89,7 @@ class DocumentManager {
     const tab: EditorTab = {
       id: crypto.randomUUID(),
       path: null,
-      name: this.untitledIndex === 1 ? 'Sem título.md' : `Sem título ${this.untitledIndex}.md`,
+      name: this.untitledIndex === 1 ? 'Untitled.md' : `Untitled ${this.untitledIndex}.md`,
       type: 'markdown',
       state,
       savedDoc: state.doc,
@@ -149,7 +155,7 @@ class DocumentManager {
     }
 
     if (isImagePath(path)) return this.openImage(path);
-    if (!path.toLowerCase().endsWith('.md')) throw new Error('Tipo de arquivo não suportado.');
+    if (!path.toLowerCase().endsWith('.md')) throw new Error('Unsupported file type.');
 
     const markdown = await readMarkdown(path);
     const state = this.editor.createState(markdown);
@@ -231,7 +237,7 @@ class DocumentManager {
         candidate.path &&
         comparablePath(candidate.path) === comparablePath(path!),
     );
-    if (duplicate) throw new Error('Esse arquivo já está aberto em outra aba.');
+    if (duplicate) throw new Error('This file is already open in another tab.');
 
     const savedState = tab.state;
     const markdown = this.editor.serializeState(savedState);
@@ -249,7 +255,7 @@ class DocumentManager {
             comparablePath(candidate.path) === comparablePath(authorizedPath),
         )
       ) {
-        throw new Error('Esse arquivo já está aberto em outra aba.');
+        throw new Error('This file is already open in another tab.');
       }
       path = authorizedPath;
       await writeMarkdown(path, markdown);
@@ -410,13 +416,13 @@ class DocumentManager {
 
   private async confirmDirty(tab: MarkdownTab): Promise<DirtyAction> {
     if (!tab.dirty) return 'discard';
-    const result = await message(`Deseja salvar as alterações em “${tab.name}”?`, {
-      title: 'Alterações não salvas',
+    const result = await message(`Do you want to save the changes to “${tab.name}”?`, {
+      title: 'Unsaved Changes',
       kind: 'warning',
-      buttons: { yes: 'Salvar', no: 'Não salvar', cancel: 'Cancelar' },
+      buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' },
     });
-    if (result === 'Yes' || result === 'Salvar') return 'save';
-    if (result === 'No' || result === 'Não salvar') return 'discard';
+    if (result === 'Yes' || result === 'Save') return 'save';
+    if (result === 'No' || result === "Don't Save") return 'discard';
     return 'cancel';
   }
 
@@ -427,7 +433,7 @@ class DocumentManager {
       if (!raw) return false;
       const session = JSON.parse(raw) as PersistedSession;
       if (!Array.isArray(session.tabs) || session.tabs.length === 0) return false;
-      // A sessão protege rascunhos sem arquivo, mas não reabre recursos do workspace anterior.
+      // The session protects unsaved drafts but does not reopen resources from the old workspace.
       const restorableTabs = session.tabs.filter(
         (stored) => stored.path === null && stored.type !== 'image',
       );
@@ -454,7 +460,10 @@ class DocumentManager {
           {
             id: stored.id || crypto.randomUUID(),
             path: stored.path,
-            name: stored.name || fileName(stored.path),
+            name:
+              stored.path === null
+                ? translateLegacyUntitledName(stored.name)
+                : stored.name || fileName(stored.path),
             type: 'markdown',
             state,
             savedDoc,
@@ -468,7 +477,7 @@ class DocumentManager {
         ? session.activeId
         : tabs[0].id;
       tabs.forEach((tab) => {
-        const match = tab.name.match(/^Sem título(?: (\d+))?\.md$/);
+        const match = tab.name.match(/^Untitled(?: (\d+))?\.md$/);
         if (match) this.untitledIndex = Math.max(this.untitledIndex, Number(match[1] ?? 1) + 1);
       });
       this.publish({ tabs, activeId, ready: true });
@@ -481,7 +490,7 @@ class DocumentManager {
       }
       return true;
     } catch (error) {
-      console.warn('Não foi possível restaurar a sessão', error);
+      console.warn('Could not restore the session.', error);
       localStorage.removeItem(SESSION_KEY);
       return false;
     }
@@ -510,7 +519,7 @@ class DocumentManager {
         const current = get(tabsState).tabs.find((candidate) => candidate.id === tab.id);
         if (!current || !isMarkdownTab(current) || !current.dirty || !current.path) return;
         void this.save(current.id).catch((error) =>
-          console.warn(`Auto Save falhou para ${current.name}.`, error),
+          console.warn(`Auto Save failed for ${current.name}.`, error),
         );
       }, 1000),
     );
@@ -557,7 +566,7 @@ class DocumentManager {
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     } catch (error) {
-      console.warn('Não foi possível persistir a sessão', error);
+      console.warn('Could not persist the session.', error);
     }
   }
 }

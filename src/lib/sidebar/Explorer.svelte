@@ -110,7 +110,7 @@
     const root = $sidebarState.workspacePath;
     const parent = operationDirectory();
     if (!root || !parent) return;
-    const name = window.prompt('Nome do arquivo Markdown:', 'novo-arquivo.md');
+    const name = window.prompt('Markdown file name:', 'new-file.md');
     if (!name) return;
     await run(async () => {
       const path = await createMarkdownFile(root, parent, name);
@@ -123,7 +123,7 @@
     const root = $sidebarState.workspacePath;
     const parent = operationDirectory();
     if (!root || !parent) return;
-    const name = window.prompt('Nome da pasta:', 'nova-pasta');
+    const name = window.prompt('Folder name:', 'new-folder');
     if (!name) return;
     await run(async () => {
       await createWorkspaceFolder(root, parent, name);
@@ -135,7 +135,7 @@
     const root = $sidebarState.workspacePath;
     const node = selectedNode;
     if (!root || !node) return;
-    const name = window.prompt('Novo nome:', node.name);
+    const name = window.prompt('New name:', node.name);
     if (!name || name === node.name) return;
     await run(async () => {
       const newPath = await renameWorkspaceEntry(
@@ -157,7 +157,7 @@
     const node = selectedNode;
     if (!root || !node) return;
     const destination = window.prompt(
-      'Pasta de destino relativa ao workspace (use . para a raiz):',
+      'Destination folder relative to the workspace (use . for the root):',
       '.',
     );
     if (destination === null) return;
@@ -176,9 +176,9 @@
     const node = selectedNode;
     if (!root || !node) return;
     const label = node.isDirectory
-      ? `a pasta “${node.name}” e todo seu conteúdo`
+      ? `the folder “${node.name}” and all its contents`
       : `“${node.name}”`;
-    if (!window.confirm(`Excluir ${label}? Esta ação não pode ser desfeita.`)) return;
+    if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return;
     if (!(await onBeforeDelete(node.path, node.isDirectory))) return;
     await run(async () => {
       await removeWorkspaceEntry(root, node.path, node.isDirectory);
@@ -237,8 +237,8 @@
 
 {#if !$sidebarState.workspacePath}
   <div class="empty-workspace">
-    <p>Nenhuma pasta aberta.</p>
-    <button onclick={selectWorkspace}>Abrir pasta</button>
+    <p>No folder open.</p>
+    <button onclick={selectWorkspace}>Open Folder</button>
   </div>
 {:else}
   <div class="explorer-heading">
@@ -253,32 +253,22 @@
       {$sidebarState.workspaceName}
     </button>
     <div class="explorer-actions">
-      <button onclick={createFile} title="Novo arquivo Markdown" aria-label="Novo arquivo">
+      <button onclick={createFile} title="New Markdown file" aria-label="New file">
         <svg viewBox="0 0 16 16"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4M8 8v4M6 10h4" /></svg>
       </button>
-      <button onclick={createFolder} title="Nova pasta" aria-label="Nova pasta">
+      <button onclick={createFolder} title="New folder" aria-label="New folder">
         <svg viewBox="0 0 16 16"><path d="M1.5 3.5h5l1.5 2h6.5v7h-13zM8 7v4M6 9h4" /></svg>
       </button>
-      <button
-        onclick={renameSelected}
-        disabled={!selectedNode}
-        title="Renomear"
-        aria-label="Renomear"
-      >
+      <button onclick={renameSelected} disabled={!selectedNode} title="Rename" aria-label="Rename">
         <svg viewBox="0 0 16 16"><path d="m3 11 8-8 2 2-8 8-3 1zM9.5 4.5l2 2" /></svg>
       </button>
-      <button onclick={moveSelected} disabled={!selectedNode} title="Mover" aria-label="Mover">
+      <button onclick={moveSelected} disabled={!selectedNode} title="Move" aria-label="Move">
         <svg viewBox="0 0 16 16"><path d="M1.5 4h5l1.5 2h6.5v6.5h-13zM6 9h5M9 7l2 2-2 2" /></svg>
       </button>
-      <button
-        onclick={deleteSelected}
-        disabled={!selectedNode}
-        title="Excluir"
-        aria-label="Excluir"
-      >
+      <button onclick={deleteSelected} disabled={!selectedNode} title="Delete" aria-label="Delete">
         <svg viewBox="0 0 16 16"><path d="M3 4h10M6 2h4l1 2H5zM5 6v7h6V6M7 7v4M9 7v4" /></svg>
       </button>
-      <button onclick={refresh} title="Atualizar" aria-label="Atualizar">
+      <button onclick={refresh} title="Refresh" aria-label="Refresh">
         <svg viewBox="0 0 16 16"><path d="M13 5V2l-1.3 1.3A5.5 5.5 0 1 0 13 9M13 2H9" /></svg>
       </button>
     </div>
@@ -294,5 +284,5 @@
       onSelectFile={selectFile}
     />
   </div>
-  <button class="change-workspace" onclick={selectWorkspace}>Abrir outra pasta…</button>
+  <button class="change-workspace" onclick={selectWorkspace}>Open Another Folder…</button>
 {/if}

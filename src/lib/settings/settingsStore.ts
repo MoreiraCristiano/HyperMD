@@ -35,7 +35,7 @@ function queuePersist(delay = 300): void {
     const snapshot = get(settingsStore);
     persistChain = persistChain
       .then(() => writePersistedSettings(snapshot))
-      .catch((error) => console.warn('Não foi possível persistir settings.json.', error));
+      .catch((error) => console.warn('Could not persist settings.json.', error));
   }, delay);
 }
 
@@ -59,7 +59,7 @@ export async function flushSettings(): Promise<void> {
   persistChain = persistChain
     .catch(() => undefined)
     .then(() => writePersistedSettings(snapshot))
-    .catch((error) => console.warn('Não foi possível persistir settings.json.', error));
+    .catch((error) => console.warn('Could not persist settings.json.', error));
   await persistChain;
 }
 

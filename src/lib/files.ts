@@ -9,7 +9,7 @@ export async function chooseMarkdownFile(): Promise<string | null> {
 }
 
 export async function chooseSavePath(defaultPath?: string): Promise<string | null> {
-  return save({ defaultPath: defaultPath ?? 'Sem título.md', filters: markdownFilters });
+  return save({ defaultPath: defaultPath ?? 'Untitled.md', filters: markdownFilters });
 }
 
 export async function readMarkdown(path: string): Promise<string> {
@@ -23,6 +23,6 @@ export async function writeMarkdown(path: string, markdown: string): Promise<voi
 }
 
 export function fileName(path: string | null): string {
-  if (!path) return 'Sem título.md';
-  return path.split(/[\\/]/).pop() || 'Sem título.md';
+  if (!path) return 'Untitled.md';
+  return path.split(/[\\/]/).pop() || 'Untitled.md';
 }

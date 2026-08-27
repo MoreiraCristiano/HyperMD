@@ -10,7 +10,7 @@ export type CodeLanguageOption = {
 };
 
 export const codeLanguageOptions: readonly CodeLanguageOption[] = [
-  { label: 'Plain Text', value: null, searchText: 'plain text plaintext txt texto' },
+  { label: 'Plain Text', value: null, searchText: 'plain text plaintext txt' },
   ...languages
     .map((description) => ({
       label: description.name,
@@ -50,7 +50,7 @@ export function loadCodeLanguage(language: string | null): Promise<LanguageSuppo
   const description = LanguageDescription.matchLanguageName(languages, name, false);
   const loading = description
     ? description.load().catch((error: unknown) => {
-        console.warn(`Não foi possível carregar a linguagem ${name}.`, error);
+        console.warn(`Could not load the ${name} language.`, error);
         return null;
       })
     : Promise.resolve(null);

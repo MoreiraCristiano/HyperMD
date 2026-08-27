@@ -35,7 +35,7 @@ export function setupWebviewGuards(options: WebviewGuardOptions = {}): () => voi
       return;
     }
 
-    // Bloqueia apenas o zoom nativo; handlers internos continuam recebendo o evento.
+    // Block only native zoom; internal handlers still receive the event.
     if (command && (key === '+' || key === '=' || key === '-' || key === '0')) {
       event.preventDefault();
       return;
@@ -81,7 +81,7 @@ export function setupWebviewGuards(options: WebviewGuardOptions = {}): () => voi
     if (!EXTERNAL_PROTOCOLS.has(url.protocol)) return;
     void openUrl(url.href).catch((cause) => {
       options.onError?.(
-        cause instanceof Error ? cause.message : 'Não foi possível abrir o link externo.',
+        cause instanceof Error ? cause.message : 'Could not open the external link.',
       );
     });
   }

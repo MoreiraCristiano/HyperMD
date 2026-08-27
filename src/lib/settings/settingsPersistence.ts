@@ -10,7 +10,7 @@ export async function readPersistedSettings(): Promise<unknown | null> {
     if (!(await exists(SETTINGS_FILE, OPTIONS))) return null;
     return JSON.parse(await readTextFile(SETTINGS_FILE, OPTIONS));
   } catch (error) {
-    console.warn('Não foi possível carregar settings.json; usando valores padrão.', error);
+    console.warn('Could not load settings.json; using default values.', error);
     return null;
   }
 }

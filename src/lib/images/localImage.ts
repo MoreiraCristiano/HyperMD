@@ -7,15 +7,15 @@ import { isInsideWorkspace } from '../sidebar/workspace';
 import { isImagePath } from './imageTypes';
 
 export async function validateWorkspaceImagePath(path: string): Promise<string> {
-  if (!isImagePath(path)) throw new Error('Formato de imagem não suportado.');
+  if (!isImagePath(path)) throw new Error('Unsupported image format.');
   const workspace = get(sidebarState).workspacePath;
-  if (!workspace) throw new Error('Abra o workspace antes de visualizar imagens.');
+  if (!workspace) throw new Error('Open the workspace before viewing images.');
   const normalizedPath = await normalize(path);
   if (!isInsideWorkspace(workspace, normalizedPath)) {
-    throw new Error('Visualização recusada fora do workspace.');
+    throw new Error('Viewing files outside the workspace is not allowed.');
   }
   const info = await stat(normalizedPath);
-  if (!info.isFile) throw new Error('A imagem selecionada não é um arquivo válido.');
+  if (!info.isFile) throw new Error('The selected image is not a valid file.');
   return normalizedPath;
 }
 

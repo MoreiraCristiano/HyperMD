@@ -20,8 +20,8 @@
   }
 
   async function resetSettings() {
-    const confirmed = await confirmDialog('Restaurar apenas as configurações desta tela?', {
-      title: 'Restaurar configurações',
+    const confirmed = await confirmDialog('Reset only the settings shown on this screen?', {
+      title: 'Reset Settings',
       kind: 'warning',
     });
     if (confirmed) settingsActions.reset();
@@ -32,13 +32,13 @@
   <div class="settings-content">
     <header class="settings-header">
       <h1>Settings</h1>
-      <p>Personalize a aparência e o comportamento do editor.</p>
+      <p>Customize the editor's appearance and behavior.</p>
     </header>
 
     <section class="settings-section" aria-labelledby="appearance-settings">
       <h2 id="appearance-settings">Appearance</h2>
       <label class="setting-row">
-        <span><strong>UI Font</strong><small>Fonte usada na interface do aplicativo.</small></span>
+        <span><strong>UI Font</strong><small>Font used throughout the application UI.</small></span>
         <input
           list="ui-font-suggestions"
           value={$settingsStore.appearance.uiFontFamily}
@@ -46,7 +46,7 @@
         />
       </label>
       <label class="setting-row">
-        <span><strong>UI Font Size</strong><small>Entre 10 e 20 pixels.</small></span>
+        <span><strong>UI Font Size</strong><small>Between 10 and 20 pixels.</small></span>
         <input
           class="numeric-input"
           type="number"
@@ -64,7 +64,7 @@
       <h2 id="editor-settings">Editor</h2>
       <label class="setting-row">
         <span
-          ><strong>Editor Font</strong><small>Use fontes instaladas e inclua fallbacks.</small
+          ><strong>Editor Font</strong><small>Use installed fonts and include fallbacks.</small
           ></span
         >
         <input
@@ -74,7 +74,7 @@
         />
       </label>
       <label class="setting-row">
-        <span><strong>Editor Font Size</strong><small>Entre 10 e 32 pixels.</small></span>
+        <span><strong>Editor Font Size</strong><small>Between 10 and 32 pixels.</small></span>
         <input
           class="numeric-input"
           type="number"
@@ -86,7 +86,7 @@
         />
       </label>
       <label class="setting-row">
-        <span><strong>Line Height</strong><small>Entre 1.2 e 2.2.</small></span>
+        <span><strong>Line Height</strong><small>Between 1.2 and 2.2.</small></span>
         <input
           class="numeric-input"
           type="number"
@@ -99,7 +99,7 @@
       </label>
       <label class="setting-row">
         <span
-          ><strong>Content Width</strong><small>Largura máxima somente do documento Markdown.</small
+          ><strong>Content Width</strong><small>Maximum width of the Markdown document only.</small
           ></span
         >
         <select
@@ -122,8 +122,7 @@
       </label>
       <label class="setting-row setting-toggle">
         <span
-          ><strong>Word Wrap</strong><small
-            >Quebra linhas de texto; blocos de código permanecem intactos.</small
+          ><strong>Word Wrap</strong><small>Wraps text lines; code blocks remain unchanged.</small
           ></span
         >
         <input
@@ -136,7 +135,7 @@
             })}
         />
       </label>
-      <div class="settings-preview" aria-label="Prévia do editor">
+      <div class="settings-preview" aria-label="Editor preview">
         <strong># Markdown</strong>
         <code>const hello = "world";</code>
         <span>Some <b>formatted text</b>.</span>
@@ -148,7 +147,7 @@
       <label class="setting-row setting-toggle">
         <span
           ><strong>Auto Save</strong><small
-            >Salva arquivos alterados após 1 segundo sem digitação.</small
+            >Saves changed files after 1 second without typing.</small
           ></span
         >
         <input

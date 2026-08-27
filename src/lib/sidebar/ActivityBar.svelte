@@ -8,7 +8,7 @@
   }
 </script>
 
-<aside class="activity-bar" aria-label="Atividades">
+<aside class="activity-bar" aria-label="Activity Bar">
   <div class="activity-main">
     <button
       class:active={$sidebarState.visible && $sidebarState.activeView === 'explorer'}

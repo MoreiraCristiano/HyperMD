@@ -75,9 +75,7 @@
     try {
       await documentManager.pasteClipboardImage(blob, selection);
     } catch (cause) {
-      showError(
-        cause instanceof Error ? cause.message : 'Não foi possível salvar a imagem colada.',
-      );
+      showError(cause instanceof Error ? cause.message : 'Could not save the pasted image.');
     }
   }
 
@@ -242,7 +240,7 @@
   </div>
 
   {#if error}
-    <button class="error-toast" onclick={() => (error = null)} aria-label="Fechar erro">
+    <button class="error-toast" onclick={() => (error = null)} aria-label="Dismiss error">
       {error}
     </button>
   {/if}

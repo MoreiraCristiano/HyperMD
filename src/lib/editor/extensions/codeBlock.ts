@@ -81,7 +81,7 @@ class CodeMirrorBlockView implements NodeView {
             spellcheck: 'false',
             autocorrect: 'off',
             autocapitalize: 'off',
-            'aria-label': 'Bloco de código',
+            'aria-label': 'Code block',
           }),
           keymap.of([
             { key: 'ArrowUp', run: () => this.maybeEscape('line', -1) },
@@ -229,7 +229,7 @@ class CodeMirrorBlockView implements NodeView {
 
   private position(): number {
     const position = this.getPos();
-    if (position === undefined) throw new Error('Bloco de código fora do documento.');
+    if (position === undefined) throw new Error('Code block is outside the document.');
     return position;
   }
 

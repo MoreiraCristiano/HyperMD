@@ -62,9 +62,9 @@
     naturalWidth = 0;
     naturalHeight = 0;
     if (!workspace) {
-      loadError = 'Abra novamente o workspace para visualizar esta imagem.';
+      loadError = 'Reopen the workspace to view this image.';
     } else if (missing) {
-      loadError = 'O arquivo não existe mais no workspace.';
+      loadError = 'The file no longer exists in the workspace.';
     } else {
       void workspaceImageUrl(currentPath)
         .then((url) => {
@@ -81,16 +81,13 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<section class="image-viewer" aria-label={`Visualizador de ${path}`}>
+<section class="image-viewer" aria-label={`Image viewer for ${path}`}>
   <div class="image-toolbar">
-    <button onclick={() => changeZoom(-1)} title="Diminuir zoom" aria-label="Diminuir zoom"
-      >−</button
-    >
-    <button class:active={fit} onclick={fitWindow}>Ajustar</button>
+    <button onclick={() => changeZoom(-1)} title="Zoom out" aria-label="Zoom out">−</button>
+    <button class:active={fit} onclick={fitWindow}>Fit</button>
     <button class:active={!fit && zoom === 1} onclick={actualSize}>100%</button>
     <span>{fit ? 'Fit' : `${Math.round(zoom * 100)}%`}</span>
-    <button onclick={() => changeZoom(1)} title="Aumentar zoom" aria-label="Aumentar zoom">+</button
-    >
+    <button onclick={() => changeZoom(1)} title="Zoom in" aria-label="Zoom in">+</button>
   </div>
 
   <div class="image-viewport">
@@ -109,11 +106,11 @@
             naturalWidth = image.naturalWidth;
             naturalHeight = image.naturalHeight;
           }}
-          onerror={() => (loadError = 'Não foi possível carregar esta imagem.')}
+          onerror={() => (loadError = 'Could not load this image.')}
         />
       </div>
     {:else}
-      <div class="image-loading">Carregando imagem…</div>
+      <div class="image-loading">Loading image…</div>
     {/if}
   </div>
 </section>

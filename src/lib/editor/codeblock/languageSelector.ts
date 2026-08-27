@@ -39,7 +39,7 @@ export class CodeLanguageSelector {
   update(language: string | null): void {
     this.currentLanguage = language;
     this.trigger.replaceChildren(document.createTextNode(languageLabel(language)), createChevron());
-    this.trigger.title = `Linguagem: ${languageLabel(language)}`;
+    this.trigger.title = `Language: ${languageLabel(language)}`;
   }
 
   destroy(): void {
@@ -59,7 +59,7 @@ export class CodeLanguageSelector {
     const input = document.createElement('input');
     input.type = 'search';
     input.className = 'code-language-search';
-    input.placeholder = 'Buscar linguagem…';
+    input.placeholder = 'Search languages…';
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.setAttribute('role', 'combobox');
@@ -142,7 +142,7 @@ export class CodeLanguageSelector {
     if (this.visibleOptions.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'code-language-empty';
-      empty.textContent = 'Nenhuma linguagem encontrada';
+      empty.textContent = 'No languages found';
       list.append(empty);
       return;
     }

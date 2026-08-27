@@ -70,8 +70,8 @@
     <button
       class="sidebar-resizer"
       onpointerdown={beginResize}
-      aria-label="Redimensionar sidebar"
-      title="Arraste para redimensionar"
+      aria-label="Resize sidebar"
+      title="Drag to resize"
     ></button>
   </aside>
 {/if}

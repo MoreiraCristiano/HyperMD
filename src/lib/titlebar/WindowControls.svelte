@@ -52,14 +52,14 @@
   });
 </script>
 
-<div class="window-controls" aria-label="Controles da janela">
-  <button onclick={() => run(() => appWindow.minimize())} title="Minimizar" aria-label="Minimizar">
+<div class="window-controls" aria-label="Window controls">
+  <button onclick={() => run(() => appWindow.minimize())} title="Minimize" aria-label="Minimize">
     <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 8.5h8" /></svg>
   </button>
   <button
     onclick={() => run(toggleMaximize)}
-    title={maximized ? 'Restaurar' : 'Maximizar'}
-    aria-label={maximized ? 'Restaurar' : 'Maximizar'}
+    title={maximized ? 'Restore' : 'Maximize'}
+    aria-label={maximized ? 'Restore' : 'Maximize'}
   >
     {#if maximized}
       <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -73,8 +73,8 @@
   <button
     class="window-close"
     onclick={() => run(async () => onClose())}
-    title="Fechar"
-    aria-label="Fechar"
+    title="Close"
+    aria-label="Close"
   >
     <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 2.5 7 7m0-7-7 7" /></svg>
   </button>

@@ -88,7 +88,7 @@
         attributes: {
           class: 'hypermd-editor',
           spellcheck: 'true',
-          'aria-label': 'Editor Markdown',
+          'aria-label': 'Markdown editor',
         },
         handlePaste(view, event) {
           const item = Array.from(event.clipboardData?.items ?? []).find(
@@ -110,7 +110,7 @@
       },
     });
     editorInstance = editor;
-    if (!editor.markdown) throw new Error('Extensão Markdown não inicializada.');
+    if (!editor.markdown) throw new Error('Markdown extension was not initialized.');
     const markdownManager = editor.markdown!;
 
     function createState(markdown: string, selection?: StoredSelection): EditorState {
@@ -204,7 +204,7 @@
 
 <div class="editor-container">
   {#if findOpen}
-    <div class="editor-find-bar" role="search" aria-label="Pesquisar no documento">
+    <div class="editor-find-bar" role="search" aria-label="Find in document">
       <input
         bind:this={findInput}
         value={findQuery}
@@ -221,8 +221,8 @@
             moveFind(event.shiftKey ? -1 : 1);
           }
         }}
-        placeholder="Pesquisar"
-        aria-label="Pesquisar"
+        placeholder="Find"
+        aria-label="Find"
         spellcheck="false"
       />
       <span class="editor-find-count" aria-live="polite">
@@ -231,20 +231,20 @@
       <button
         onclick={() => moveFind(-1)}
         disabled={findCount === 0}
-        title="Anterior (Shift+Enter)"
-        aria-label="Resultado anterior"
+        title="Previous (Shift+Enter)"
+        aria-label="Previous result"
       >
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 7 3-3 3 3" /></svg>
       </button>
       <button
         onclick={() => moveFind(1)}
         disabled={findCount === 0}
-        title="Próximo (Enter)"
-        aria-label="Próximo resultado"
+        title="Next (Enter)"
+        aria-label="Next result"
       >
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 5 3 3 3-3" /></svg>
       </button>
-      <button onclick={() => closeFind()} title="Fechar (Escape)" aria-label="Fechar pesquisa">
+      <button onclick={() => closeFind()} title="Close (Escape)" aria-label="Close find">
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6L3 9" /></svg>
       </button>
     </div>
