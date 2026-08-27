@@ -342,6 +342,50 @@ class DocumentManager {
     return true;
   }
 
+  async closeWorkspaceTabs(workspacePath: string): Promise<boolean> {
+    const initial = get(tabsState);
+    const workspaceTabs = initial.tabs.filter((tab) => pathMatches(tab.path, workspacePath, true));
+    const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
+
+    for (const initialTab of workspaceTabs) {
+      const tab = get(tabsState).tabs.find((candidate) => candidate.id === initialTab.id);
+      if (!tab || !isMarkdownTab(tab) || !tab.dirty) continue;
+      const action = await this.confirmDirty(tab);
+      if (action === 'cancel') return false;
+      if (action === 'save' && !(await this.save(tab.id))) return false;
+    }
+
+    const snapshot = get(tabsState);
+    if (!snapshot.tabs.some((tab) => workspaceTabIds.has(tab.id))) return true;
+    for (const tab of snapshot.tabs) {
+      if (workspaceTabIds.has(tab.id)) this.clearAutoSave(tab.id);
+    }
+
+    const tabs = snapshot.tabs.filter((tab) => !workspaceTabIds.has(tab.id));
+    let activeId = snapshot.activeId;
+    if (activeId && workspaceTabIds.has(activeId)) {
+      const activeIndex = snapshot.tabs.findIndex((tab) => tab.id === activeId);
+      const nextTab = snapshot.tabs
+        .slice(activeIndex + 1)
+        .find((tab) => !workspaceTabIds.has(tab.id));
+      const previousTab = snapshot.tabs
+        .slice(0, activeIndex)
+        .reverse()
+        .find((tab) => !workspaceTabIds.has(tab.id));
+      activeId = nextTab?.id ?? previousTab?.id ?? null;
+    }
+
+    this.publish({ ...snapshot, tabs, activeId });
+    const active = tabs.find((tab) => tab.id === activeId);
+    if (active && this.editor && isMarkdownTab(active)) {
+      this.editor.setState(active.state);
+      this.editor.focus();
+    } else if (!active && this.editor) {
+      this.editor.setState(this.editor.createState(''));
+    }
+    return true;
+  }
+
   activateRelative(offset: number): void {
     const snapshot = get(tabsState);
     if (snapshot.tabs.length < 2 || !snapshot.activeId) return;

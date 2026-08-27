@@ -2,18 +2,12 @@
   import FileTree from './FileTree.svelte';
   import SidebarContextMenu, { type SidebarContextMenuItem } from './SidebarContextMenu.svelte';
   import { dialogService } from '../dialogs/dialogStore';
-  import {
-    sidebarActions,
-    sidebarState,
-    workspacePickerRequest,
-    workspaceRefreshRequest,
-  } from './sidebarStore';
+  import { sidebarState, workspacePickerRequest, workspaceRefreshRequest } from './sidebarStore';
   import {
     chooseWorkspace,
     createMarkdownFile,
     createWorkspaceFolder,
     moveWorkspaceEntries,
-    pathName,
     readWorkspaceDirectory,
     relativeWorkspacePath,
     removeWorkspaceEntry,
@@ -25,6 +19,7 @@
   type Props = {
     activePath: string | null;
     onOpenFile: (path: string) => Promise<boolean>;
+    onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
     onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => void;
@@ -62,7 +57,15 @@
     { id: 'delete', label: 'Delete', danger: true },
   ];
 
-  let { activePath, onOpenFile, onBeforeDelete, onDeleted, onRenamed, onError }: Props = $props();
+  let {
+    activePath,
+    onOpenFile,
+    onChangeWorkspace,
+    onBeforeDelete,
+    onDeleted,
+    onRenamed,
+    onError,
+  }: Props = $props();
   let entries = $state<FileNode[]>([]);
   let selectedPaths = $state<string[]>([]);
   let selectionAnchorPath = $state<string | null>(null);
@@ -90,7 +93,7 @@
   async function selectWorkspace() {
     const path = await chooseWorkspace();
     if (!path) return;
-    sidebarActions.setWorkspace(path, pathName(path));
+    await onChangeWorkspace(path);
   }
 
   async function loadRoot() {

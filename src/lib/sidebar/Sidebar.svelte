@@ -7,13 +7,15 @@
 
   type Props = {
     onOpenFile: (path: string) => Promise<boolean>;
+    onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
     onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => void;
     onError: (message: string) => void;
   };
 
-  let { onOpenFile, onBeforeDelete, onDeleted, onRenamed, onError }: Props = $props();
+  let { onOpenFile, onChangeWorkspace, onBeforeDelete, onDeleted, onRenamed, onError }: Props =
+    $props();
   let dragWidth = $state<number | null>(null);
   let dragging = false;
   let startX = 0;
@@ -58,6 +60,7 @@
       <Explorer
         activePath={$activeTab?.path ?? null}
         {onOpenFile}
+        {onChangeWorkspace}
         {onBeforeDelete}
         {onDeleted}
         {onRenamed}

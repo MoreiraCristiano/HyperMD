@@ -9,7 +9,8 @@
   import { chooseMarkdownFile } from './lib/files';
   import ActivityBar from './lib/sidebar/ActivityBar.svelte';
   import Sidebar from './lib/sidebar/Sidebar.svelte';
-  import { sidebarActions } from './lib/sidebar/sidebarStore';
+  import { sidebarActions, sidebarState } from './lib/sidebar/sidebarStore';
+  import { isInsideWorkspace, pathName } from './lib/sidebar/workspace';
   import { activeTab, tabsState } from './lib/tabs/tabStore';
   import TitleBar from './lib/titlebar/TitleBar.svelte';
   import { zoomActions } from './lib/titlebar/zoom';
@@ -62,6 +63,21 @@
 
   async function openDocumentAt(path: string): Promise<boolean> {
     return (await run(() => documentManager.open(path))) ?? false;
+  }
+
+  async function changeWorkspace(path: string): Promise<boolean> {
+    const currentPath = get(sidebarState).workspacePath;
+    const sameWorkspace =
+      currentPath !== null &&
+      isInsideWorkspace(currentPath, path) &&
+      isInsideWorkspace(path, currentPath);
+    if (sameWorkspace) return true;
+    if (currentPath) {
+      const closed = await run(() => documentManager.closeWorkspaceTabs(currentPath));
+      if (!closed) return false;
+    }
+    sidebarActions.setWorkspace(path, pathName(path));
+    return true;
   }
 
   function editorReady(editor: EditorApi) {
@@ -214,6 +230,7 @@
       <ActivityBar />
       <Sidebar
         onOpenFile={openDocumentAt}
+        onChangeWorkspace={changeWorkspace}
         onBeforeDelete={() => Promise.resolve(true)}
         onDeleted={(path, isDirectory) => documentManager.markMissing(path, isDirectory)}
         onRenamed={(oldPath, newPath, isDirectory) =>
