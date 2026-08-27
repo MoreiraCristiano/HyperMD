@@ -816,6 +816,19 @@ body.resizing-sidebar {
   color: #d9d9d6;
   font-size: 0.82em;
 }
+.hypermd-editor .hypermd-code-block {
+  overflow: hidden;
+  margin: 1.35em 0;
+  border: 1px solid #30302f;
+  border-radius: 9px;
+  background: #111212;
+}
+.hypermd-editor .hypermd-code-block code {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
 .hypermd-editor blockquote {
   margin: 1em 0;
   border-left: 3px solid #555552;

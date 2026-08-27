@@ -8,6 +8,7 @@
   import { MarkdownSupport } from './markdown';
   import { DocumentFind, clearFind, findText, moveFindMatch } from './find/findPlugin';
   import { MarkdownImage, refreshRenderedImages } from './extensions/image';
+  import { CodeMirrorCodeBlock } from './extensions/codeBlock';
   import { isSupportedImageMime } from './imageImport';
   import { sidebarState } from '../sidebar/sidebarStore';
   import type { EditorApi, EditorCommand, StoredSelection } from './editorTypes';
@@ -70,15 +71,12 @@
       element,
       extensions: [
         StarterKit.configure({
-          codeBlock: {
-            enableTabIndentation: true,
-            tabSize: 2,
-            HTMLAttributes: { spellcheck: 'false' },
-          },
+          codeBlock: false,
           link: { openOnClick: false, autolink: true, linkOnPaste: true },
         }),
         TaskList,
         TaskItem.configure({ nested: true }),
+        CodeMirrorCodeBlock,
         MarkdownImage,
         MarkdownSupport,
         DocumentFind,

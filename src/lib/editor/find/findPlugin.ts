@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
@@ -45,17 +45,34 @@ function buildFindState(doc: ProseMirrorNode, query: string, requestedIndex = 0)
   const activeIndex = ((requestedIndex % matches.length) + matches.length) % matches.length;
   const decorations = DecorationSet.create(
     doc,
-    matches.map((match, index) =>
-      Decoration.inline(match.from, match.to, {
-        class: index === activeIndex ? 'find-match active' : 'find-match',
-      }),
-    ),
+    matches.map((match, index) => {
+      const active = index === activeIndex;
+      return Decoration.inline(
+        match.from,
+        match.to,
+        { class: active ? 'find-match active' : 'find-match' },
+        { documentFind: true, active },
+      );
+    }),
   );
   return { query, matches, activeIndex, decorations };
 }
 
 function pluginState(view: EditorView): FindState {
   return findPluginKey.getState(view.state) ?? emptyFindState();
+}
+
+export function findRangesInside(
+  state: EditorState,
+  from: number,
+  to: number,
+): Array<FindMatch & { active: boolean }> {
+  const current = findPluginKey.getState(state) ?? emptyFindState();
+  return current.matches.flatMap((match, index) =>
+    match.from >= from && match.to <= to
+      ? [{ from: match.from - from, to: match.to - from, active: index === current.activeIndex }]
+      : [],
+  );
 }
 
 function selectActiveMatch(view: EditorView, state: FindState): void {
