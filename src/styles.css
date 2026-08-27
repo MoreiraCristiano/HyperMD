@@ -817,11 +817,119 @@ body.resizing-sidebar {
   font-size: 0.82em;
 }
 .hypermd-editor .hypermd-code-block {
-  overflow: hidden;
+  position: relative;
   margin: 1.35em 0;
   border: 1px solid #30302f;
   border-radius: 9px;
   background: #111212;
+}
+.hypermd-editor .hypermd-code-block > .cm-editor {
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
+}
+.code-language-toolbar {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border-bottom: 1px solid #292a29;
+  border-radius: 8px 8px 0 0;
+  padding: 0 8px;
+  background: #171817;
+  font-family: var(--ui-font-family);
+  font-size: 11px;
+}
+.code-language-trigger {
+  display: inline-flex;
+  max-width: 220px;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 7px;
+  background: transparent;
+  color: #aaafab;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.code-language-trigger:hover,
+.code-language-trigger[aria-expanded='true'] {
+  background: #252625;
+  color: #e2e3e0;
+}
+.code-language-trigger:focus-visible,
+.code-language-search:focus-visible {
+  outline: 1px solid #5f8db8;
+  outline-offset: -1px;
+}
+.code-language-trigger svg {
+  width: 8px;
+  min-width: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+.code-language-dropdown {
+  position: absolute;
+  top: 27px;
+  left: 8px;
+  z-index: 30;
+  width: min(280px, calc(100vw - 100px));
+  border: 1px solid #393a39;
+  border-radius: 6px;
+  padding: 5px;
+  background: #1d1e1d;
+  box-shadow: 0 7px 20px rgb(0 0 0 / 35%);
+}
+.code-language-search {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #414341;
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: #131413;
+  color: #e4e5e2;
+  font: inherit;
+}
+.code-language-search::placeholder {
+  color: #6f736f;
+}
+.code-language-list {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 5px;
+  scrollbar-color: #4b4d4b transparent;
+  scrollbar-width: thin;
+}
+.code-language-option {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 3px;
+  padding: 5px 8px;
+  background: transparent;
+  color: #b9bbb8;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.code-language-option:hover,
+.code-language-option.keyboard-active {
+  background: #2a2c2a;
+  color: #f0f1ee;
+}
+.code-language-option.selected {
+  color: #8fc2f2;
+}
+.code-language-empty {
+  padding: 9px 8px;
+  color: #777a77;
 }
 .hypermd-editor .hypermd-code-block code {
   padding: 0;

@@ -22,6 +22,7 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 import { loadCodeLanguage } from '../codeblock/languages';
+import { CodeLanguageSelector } from '../codeblock/languageSelector';
 import { codeMirrorTheme } from '../codeblock/theme';
 import { findRangesInside } from '../find/findPlugin';
 
@@ -54,6 +55,7 @@ class CodeMirrorBlockView implements NodeView {
   private readonly outerView: ProseMirrorEditorView;
   private readonly getPos: NodeViewRendererProps['getPos'];
   private readonly codeMirror: CodeMirrorEditorView;
+  private readonly languageSelector: CodeLanguageSelector;
   private readonly language = new Compartment();
   private updating = false;
   private languageRequest = 0;
@@ -63,6 +65,10 @@ class CodeMirrorBlockView implements NodeView {
     this.node = node;
     this.outerView = view;
     this.getPos = getPos;
+    this.languageSelector = new CodeLanguageSelector(
+      node.attrs.language as string | null,
+      (language) => this.setLanguage(language),
+    );
     this.codeMirror = new CodeMirrorEditorView({
       state: CodeMirrorState.create({
         doc: node.textContent,
@@ -82,6 +88,7 @@ class CodeMirrorBlockView implements NodeView {
             { key: 'ArrowLeft', run: () => this.maybeEscape('char', -1) },
             { key: 'ArrowDown', run: () => this.maybeEscape('line', 1) },
             { key: 'ArrowRight', run: () => this.maybeEscape('char', 1) },
+            { key: 'Shift-Enter', run: () => this.exitCodeBlock() },
             { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => this.exitCodeBlock() },
             {
               key: 'Ctrl-z',
@@ -110,8 +117,9 @@ class CodeMirrorBlockView implements NodeView {
         ],
       }),
     });
-    this.dom = this.codeMirror.dom;
-    this.dom.classList.add('hypermd-code-block');
+    this.dom = document.createElement('div');
+    this.dom.className = 'hypermd-code-block';
+    this.dom.append(this.languageSelector.dom, this.codeMirror.dom);
     this.updateFindRanges();
     void this.updateLanguage(node.attrs.language as string | null);
   }
@@ -137,7 +145,10 @@ class CodeMirrorBlockView implements NodeView {
 
     this.updateFindRanges();
     const nextLanguage = node.attrs.language as string | null;
-    if (nextLanguage !== previousLanguage) void this.updateLanguage(nextLanguage);
+    if (nextLanguage !== previousLanguage) {
+      this.languageSelector.update(nextLanguage);
+      void this.updateLanguage(nextLanguage);
+    }
     return true;
   }
 
@@ -159,6 +170,7 @@ class CodeMirrorBlockView implements NodeView {
   destroy(): void {
     this.destroyed = true;
     this.languageRequest += 1;
+    this.languageSelector.destroy();
     this.codeMirror.destroy();
   }
 
@@ -232,6 +244,16 @@ class CodeMirrorBlockView implements NodeView {
     const support = await loadCodeLanguage(language);
     if (this.destroyed || request !== this.languageRequest) return;
     this.codeMirror.dispatch({ effects: this.language.reconfigure(support ?? []) });
+  }
+
+  private setLanguage(language: string | null): void {
+    const position = this.position();
+    this.outerView.dispatch(
+      this.outerView.state.tr
+        .setNodeMarkup(position, undefined, { ...this.node.attrs, language })
+        .scrollIntoView(),
+    );
+    queueMicrotask(() => this.codeMirror.focus());
   }
 }
 
