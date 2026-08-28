@@ -610,7 +610,7 @@ body.resizing-sidebar {
   text-align: left;
   cursor: default;
 }
-.sidebar-context-menu button:hover,
+.sidebar-context-menu button:hover:not(:disabled),
 .sidebar-context-menu button:focus-visible,
 .sidebar-context-menu button.keyboard-active {
   background: #3a3045;
@@ -620,11 +620,14 @@ body.resizing-sidebar {
 .sidebar-context-menu button.danger {
   color: #dfa29c;
 }
-.sidebar-context-menu button.danger:hover,
+.sidebar-context-menu button.danger:hover:not(:disabled),
 .sidebar-context-menu button.danger:focus-visible,
 .sidebar-context-menu button.danger.keyboard-active {
   background: #59302d;
   color: #ffd4cf;
+}
+.sidebar-context-menu button:disabled {
+  color: #686865;
 }
 .context-menu-separator {
   height: 1px;
@@ -988,6 +991,11 @@ body.resizing-sidebar {
 .hypermd-table-toolbar-group:last-child {
   padding-right: 0;
   border-right: 0;
+}
+.hypermd-table-toolbar-label {
+  padding: 0 4px 0 2px;
+  color: #858581;
+  font-size: max(9px, calc(var(--ui-font-size) - 2px));
 }
 .hypermd-table-action {
   min-width: 26px;

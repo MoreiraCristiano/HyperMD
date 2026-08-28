@@ -111,12 +111,12 @@ describe('Explorer', () => {
       expect(handlers.onRenamed).toHaveBeenCalledWith('/work/note.md', '/work/renamed.md', false),
     );
 
-    const refreshedNote = await screen.findByRole('treeitem', { name: /note.md/ });
+    const refreshedNote = await screen.findByRole('treeitem', { name: /renamed.md/ });
     prompt.mockResolvedValueOnce('docs');
     await fireEvent.contextMenu(refreshedNote);
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Move' }));
     await waitFor(() =>
-      expect(tauriMocks.rename).toHaveBeenCalledWith('/work/note.md', '/work/docs/note.md'),
+      expect(tauriMocks.rename).toHaveBeenCalledWith('/work/renamed.md', '/work/docs/renamed.md'),
     );
 
     const image = screen.getByRole('treeitem', { name: /a.png/ });
@@ -131,6 +131,69 @@ describe('Explorer', () => {
     );
     expect(handlers.onDeleted).toHaveBeenCalledWith('/work/a.png', false);
     expect(confirm).toHaveBeenCalled();
+  });
+
+  it('preserves expanded folders when renaming nested entries', async () => {
+    tauriMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === '/work/docs') return [directory('nested')];
+      if (path === '/work/docs/nested') return [file('child.md')];
+      if (path === '/work/sibling') return [file('stay.md')];
+      return [directory('docs'), directory('sibling')];
+    });
+    const handlers = props();
+    vi.spyOn(dialogService, 'prompt')
+      .mockResolvedValueOnce('renamed')
+      .mockResolvedValueOnce('renamed-nested');
+    render(Explorer, handlers);
+
+    const docs = await screen.findByRole('treeitem', { name: /docs/ });
+    await fireEvent.click(docs);
+    const nested = await screen.findByRole('treeitem', { name: /nested/ });
+    await fireEvent.click(nested);
+    const sibling = screen.getByRole('treeitem', { name: /sibling/ });
+    await fireEvent.click(sibling);
+    const child = await screen.findByRole('treeitem', { name: /child.md/ });
+    expect(screen.getByRole('treeitem', { name: /stay.md/ })).toBeInTheDocument();
+    const readsBeforeRename = tauriMocks.readDir.mock.calls.length;
+
+    await fireEvent.contextMenu(child);
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    await waitFor(() =>
+      expect(handlers.onRenamed).toHaveBeenCalledWith(
+        '/work/docs/nested/child.md',
+        '/work/docs/nested/renamed.md',
+        false,
+      ),
+    );
+
+    expect(screen.getByRole('treeitem', { name: /docs/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: /nested/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /sibling/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /renamed.md/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /stay.md/ })).toBeInTheDocument();
+    expect(tauriMocks.readDir).toHaveBeenCalledTimes(readsBeforeRename);
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /nested/ }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    await waitFor(() =>
+      expect(handlers.onRenamed).toHaveBeenCalledWith(
+        '/work/docs/nested',
+        '/work/docs/renamed-nested',
+        true,
+      ),
+    );
+    const renamedFolder = screen.getByRole('treeitem', { name: /renamed-nested/ });
+    expect(renamedFolder).toHaveAttribute('aria-expanded', 'true');
+    const renamedChild = screen.getByRole('treeitem', { name: /renamed.md/ });
+    await fireEvent.click(renamedChild);
+    expect(handlers.onOpenFile).toHaveBeenCalledWith('/work/docs/renamed-nested/renamed.md');
+    expect(tauriMocks.readDir).toHaveBeenCalledTimes(readsBeforeRename);
   });
 
   it('moves selected nodes with drag and reports operation errors', async () => {

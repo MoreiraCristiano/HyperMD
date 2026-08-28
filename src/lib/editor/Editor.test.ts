@@ -51,6 +51,65 @@ describe('Editor', () => {
     expect(await api.execute('redo')).toBe(true);
   });
 
+  it('offers basic editing commands from the editor context menu', async () => {
+    const { api, container } = await mountEditor();
+    const editor = container.querySelector('.ProseMirror')!;
+    const openMenu = async () => {
+      await fireEvent.contextMenu(editor, { clientX: 24, clientY: 32 });
+      return screen.findByRole('menu', { name: 'Editor actions' });
+    };
+
+    api.setState(api.createState('Alpha Beta', { anchor: 1, head: 6 }));
+    await openMenu();
+    expect(screen.getByRole('menuitem', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Redo' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Cut' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy' }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('Alpha'));
+    expect(screen.queryByRole('menu', { name: 'Editor actions' })).not.toBeInTheDocument();
+
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Cut' }));
+    await waitFor(() => expect(api.getState().doc.textContent).toBe(' Beta'));
+
+    await openMenu();
+    expect(screen.getByRole('menuitem', { name: 'Undo' })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Undo' }));
+    await waitFor(() => expect(api.getState().doc.textContent).toBe('Alpha Beta'));
+
+    await openMenu();
+    expect(screen.getByRole('menuitem', { name: 'Redo' })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Redo' }));
+    await waitFor(() => expect(api.getState().doc.textContent).toBe(' Beta'));
+
+    api.setState(api.createState('Start ', { anchor: 7, head: 7 }));
+    await openMenu();
+    expect(screen.getByRole('menuitem', { name: 'Cut' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeDisabled();
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Paste' }));
+    await waitFor(() => expect(api.getState().doc.textContent).toBe('Start pasted'));
+
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Select All' }));
+    expect(api.getState().selection.from).toBe(0);
+    expect(api.getState().selection.to).toBe(api.getState().doc.content.size);
+  });
+
+  it('leaves CodeMirror code blocks outside the editor context menu', async () => {
+    const { api, container } = await mountEditor();
+    api.setState(api.createState('```js\nconst x = 1;\n```'));
+    const codeMirror = await waitFor(() => {
+      const element = container.querySelector('.cm-editor');
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    await fireEvent.contextMenu(codeMirror, { clientX: 24, clientY: 32 });
+    expect(screen.queryByRole('menu', { name: 'Editor actions' })).not.toBeInTheDocument();
+  });
+
   it('opens find UI, navigates matches, and closes it', async () => {
     const user = userEvent.setup();
     const { api } = await mountEditor();

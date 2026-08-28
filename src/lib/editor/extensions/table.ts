@@ -3,7 +3,9 @@ import {
   type Editor,
   type Extensions,
   type JSONContent,
+  type MarkdownParseHelpers,
   type MarkdownRendererHelpers,
+  type MarkdownToken,
   type NodeViewRendererProps,
 } from '@tiptap/core';
 import { Table, TableCell, TableHeader, TableRow, updateColumns } from '@tiptap/extension-table';
@@ -13,6 +15,20 @@ import { TableMap, addRowAfter as addProseMirrorRowAfter } from '@tiptap/pm/tabl
 import type { EditorView, NodeView, ViewMutationRecord } from '@tiptap/pm/view';
 
 export type TableAlignment = 'left' | 'center' | 'right';
+export type TableSection = 'header' | 'body';
+
+type MarkdownTableCellToken = {
+  align?: unknown;
+  text?: string;
+  tokens?: MarkdownToken[];
+};
+
+type MarkdownTableToken = MarkdownToken & {
+  align?: unknown[];
+  header?: MarkdownTableCellToken[];
+  rows?: MarkdownTableCellToken[][];
+  headerAlignments?: Array<TableAlignment | null>;
+};
 
 export type TableContext = {
   table: ProseMirrorNode;
@@ -27,6 +43,134 @@ type Dispatch = (transaction: Transaction) => void;
 
 export const TABLE_MODE_EXIT = 'hypermdTableModeExit';
 export const TABLE_MODE_ENTER = 'hypermdTableModeEnter';
+const HEADER_ALIGNMENT_PREFIX = '<!-- hypermd-table-header-align: ';
+
+function normalizeAlignment(value: unknown): TableAlignment | null {
+  return value === 'left' || value === 'center' || value === 'right' ? value : null;
+}
+
+function parseCellInline(source: string, helpers: MarkdownParseHelpers): JSONContent[] {
+  const tokens = helpers.tokenizeInline?.(source);
+  if (tokens) return helpers.parseInline(tokens);
+  return source ? [helpers.createTextNode(source)] : [];
+}
+
+function parseMarkdownTableCell(
+  cell: MarkdownTableCellToken,
+  helpers: MarkdownParseHelpers,
+): JSONContent[] {
+  const lines = cell.text?.split(/<br\s*\/?>/i);
+  if (!lines?.length) {
+    return [helpers.createNode('paragraph', {}, [...helpers.parseInline(cell.tokens ?? [])])];
+  }
+
+  const tasks = lines.map((line) => line.match(/^[-+*]\s+\[([ xX])\](?:\s+(.*))?$/));
+  if (tasks.every((match) => match !== null)) {
+    return [
+      helpers.createNode(
+        'taskList',
+        {},
+        tasks.map((match) =>
+          helpers.createNode('taskItem', { checked: match![1].toLowerCase() === 'x' }, [
+            helpers.createNode('paragraph', {}, parseCellInline(match![2] ?? '', helpers)),
+          ]),
+        ),
+      ),
+    ];
+  }
+
+  const bullets = lines.map((line) => line.match(/^[-+*](?:\s+(.*))?$/));
+  if (bullets.every((match) => match !== null)) {
+    return [
+      helpers.createNode(
+        'bulletList',
+        {},
+        bullets.map((match) =>
+          helpers.createNode('listItem', {}, [
+            helpers.createNode('paragraph', {}, parseCellInline(match![1] ?? '', helpers)),
+          ]),
+        ),
+      ),
+    ];
+  }
+
+  const ordered = lines.map((line) => line.match(/^(\d+)[.)](?:\s+(.*))?$/));
+  if (ordered.every((match) => match !== null)) {
+    return [
+      helpers.createNode(
+        'orderedList',
+        { start: Number(ordered[0]![1]) },
+        ordered.map((match) =>
+          helpers.createNode('listItem', {}, [
+            helpers.createNode('paragraph', {}, parseCellInline(match![2] ?? '', helpers)),
+          ]),
+        ),
+      ),
+    ];
+  }
+
+  return [helpers.createNode('paragraph', {}, [...helpers.parseInline(cell.tokens ?? [])])];
+}
+
+function parseMarkdownTable(token: MarkdownTableToken, helpers: MarkdownParseHelpers): JSONContent {
+  const bodyAlignments = Array.isArray(token.align) ? token.align.map(normalizeAlignment) : [];
+  const parsedHeaderAlignments = token.headerAlignments?.map(normalizeAlignment);
+  const hasHeaderMetadata = parsedHeaderAlignments !== undefined;
+  const headerAlignments = parsedHeaderAlignments ?? bodyAlignments;
+  const rows: JSONContent[] = [];
+
+  if (token.header) {
+    rows.push(
+      helpers.createNode(
+        'tableRow',
+        {},
+        token.header.map((cell, column) =>
+          helpers.createNode(
+            'tableHeader',
+            {
+              align: hasHeaderMetadata
+                ? (headerAlignments[column] ?? null)
+                : (headerAlignments[column] ?? normalizeAlignment(cell.align)),
+            },
+            parseMarkdownTableCell(cell, helpers),
+          ),
+        ),
+      ),
+    );
+  }
+
+  for (const row of token.rows ?? []) {
+    rows.push(
+      helpers.createNode(
+        'tableRow',
+        {},
+        row.map((cell, column) =>
+          helpers.createNode(
+            'tableCell',
+            { align: bodyAlignments[column] ?? normalizeAlignment(cell.align) },
+            parseMarkdownTableCell(cell, helpers),
+          ),
+        ),
+      ),
+    );
+  }
+
+  return helpers.createNode('table', undefined, rows);
+}
+
+function parseHeaderAlignmentMetadata(value: string): Array<TableAlignment | null> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every((item) => item === null || normalizeAlignment(item))
+    )
+      return null;
+    return parsed.map(normalizeAlignment);
+  } catch {
+    return null;
+  }
+}
 
 export function canInsertMarkdownTable(editor: Editor): boolean {
   return (
@@ -78,12 +222,13 @@ export function renderMarkdownTable(node: JSONContent, helpers: MarkdownRenderer
   );
   const pad = (value: string, width: number): string => value.padEnd(width, ' ');
   const header = rows[0].some((cell) => cell.header) ? rows[0] : [];
-  const alignments = Array.from<TableAlignment | null>({ length: columnCount }).fill(null);
-  for (const row of rows) {
-    row.forEach((cell, column) => {
-      if (!alignments[column] && cell.align) alignments[column] = cell.align;
-    });
-  }
+  const body = header.length ? rows.slice(1) : rows;
+  const bodyAlignments = Array.from({ length: columnCount }, (_, column): TableAlignment | null =>
+    normalizeAlignment(body[0]?.[column]?.align),
+  );
+  const headerAlignments = Array.from({ length: columnCount }, (_, column): TableAlignment | null =>
+    normalizeAlignment(header[column]?.align),
+  );
   const renderRow = (row: (typeof rows)[number]): string =>
     `| ${Array.from({ length: columnCount }, (_, column) =>
       pad(row[column]?.text ?? '', widths[column]),
@@ -91,17 +236,21 @@ export function renderMarkdownTable(node: JSONContent, helpers: MarkdownRenderer
   const separator = `| ${widths
     .map((width, column) => {
       const dashes = '-'.repeat(width);
-      if (alignments[column] === 'left') return `:${dashes}`;
-      if (alignments[column] === 'center') return `:${dashes}:`;
-      if (alignments[column] === 'right') return `${dashes}:`;
+      if (bodyAlignments[column] === 'left') return `:${dashes}`;
+      if (bodyAlignments[column] === 'center') return `:${dashes}:`;
+      if (bodyAlignments[column] === 'right') return `${dashes}:`;
       return dashes;
     })
     .join(' | ')} |`;
-  const body = header.length ? rows.slice(1) : rows;
   const headerCells = header.length
     ? header
     : Array.from({ length: columnCount }, () => ({ text: '', header: true, align: null }));
-  return `\n${[renderRow(headerCells), separator, ...body.map(renderRow)].join('\n')}\n`;
+  const metadata = headerAlignments.some(
+    (alignment, column) => alignment !== bodyAlignments[column],
+  )
+    ? `${HEADER_ALIGNMENT_PREFIX}${JSON.stringify(headerAlignments)} -->\n`
+    : '';
+  return `\n${metadata}${[renderRow(headerCells), separator, ...body.map(renderRow)].join('\n')}\n`;
 }
 
 export function findTableContext(state: EditorState): TableContext | null {
@@ -223,19 +372,22 @@ export function moveTableColumn(
 export function alignTableColumn(
   state: EditorState,
   dispatch: Dispatch | undefined,
+  section: TableSection,
   alignment: TableAlignment,
 ): boolean {
   const context = findTableContext(state);
   if (!context) return false;
   const rows = rectangularRows(context.table, context.width);
   if (!rows) return false;
+  if (section === 'body' && rows.length <= 1) return false;
 
-  const alignedRows = rows.map((row) => {
+  const alignedRows = rows.map((row, rowIndex) => {
+    const applies = section === 'header' ? rowIndex === 0 : rowIndex > 0;
     const cells: ProseMirrorNode[] = [];
     for (let index = 0; index < row.childCount; index += 1) {
       const cell = row.child(index);
       cells.push(
-        index === context.column
+        applies && index === context.column
           ? cell.type.create({ ...cell.attrs, align: alignment }, cell.content, cell.marks)
           : cell,
       );
@@ -249,13 +401,48 @@ export function alignTableColumn(
 export function addTableRowAndFocus(editor: Editor): boolean {
   const context = findTableContext(editor.state);
   if (!context) return false;
+  const bodyAlignments = Array.from({ length: context.width }, (_, column): TableAlignment | null =>
+    normalizeAlignment(
+      context.table.childCount > 1 ? context.table.child(1).child(column).attrs.align : null,
+    ),
+  );
   return addProseMirrorRowAfter(editor.state, (transaction) => {
-    const table = transaction.doc.nodeAt(context.tablePos);
+    let table = transaction.doc.nodeAt(context.tablePos);
     if (!table) return;
+    const rows: ProseMirrorNode[] = [];
+    table.forEach((row, _offset, rowIndex) => {
+      if (rowIndex !== context.row + 1) {
+        rows.push(row);
+        return;
+      }
+      const cells: ProseMirrorNode[] = [];
+      row.forEach((cell, _cellOffset, column) => {
+        const type = transaction.doc.type.schema.nodes.tableCell ?? cell.type;
+        cells.push(
+          type.create({ ...cell.attrs, align: bodyAlignments[column] }, cell.content, cell.marks),
+        );
+      });
+      rows.push(row.copy(Fragment.fromArray(cells)));
+    });
+    const normalizedTable = table.copy(Fragment.fromArray(rows));
+    transaction.replaceWith(context.tablePos, context.tablePos + table.nodeSize, normalizedTable);
+    table = normalizedTable;
     setCellSelection(transaction, context.tablePos, table, context.row + 1, context.column);
     editor.view.dispatch(transaction.scrollIntoView());
     editor.view.focus();
   });
+}
+
+function handleTableEnter(editor: Editor): boolean {
+  if (!findTableContext(editor.state)) return false;
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const nodeName = $from.node(depth).type.name;
+    if (nodeName === 'taskItem' || nodeName === 'listItem') {
+      return editor.commands.splitListItem(nodeName);
+    }
+  }
+  return addTableRowAndFocus(editor);
 }
 
 function moveSelectionAfterTable(view: EditorView, getPos: NodeViewRendererProps['getPos']): void {
@@ -338,6 +525,7 @@ export class MarkdownTableView implements NodeView {
     this.contentDOM = this.table.appendChild(document.createElement('tbody'));
 
     this.table.addEventListener('pointerdown', this.activate);
+    this.table.addEventListener('dragstart', this.preventDragStart);
     this.dom.addEventListener('keydown', this.handleKeydown);
     this.editor.on('selectionUpdate', this.handleSelectionUpdate);
   }
@@ -349,6 +537,13 @@ export class MarkdownTableView implements NodeView {
     group.setAttribute('aria-label', label);
     this.toolbar.appendChild(group);
     return group;
+  }
+
+  private addGroupLabel(group: HTMLElement, text: string): void {
+    const label = document.createElement('span');
+    label.className = 'hypermd-table-toolbar-label';
+    label.textContent = text;
+    group.appendChild(label);
   }
 
   private addButton(
@@ -400,31 +595,67 @@ export class MarkdownTableView implements NodeView {
       moveTableColumn(this.editor.state, (transaction) => this.outerView.dispatch(transaction), 1),
     );
 
-    const alignment = this.createGroup('Column alignment');
-    this.addButton(alignment, 'left', 'Align column left', 'L', () =>
+    const headerAlignment = this.createGroup('Header alignment');
+    this.addGroupLabel(headerAlignment, 'Header');
+    this.addButton(headerAlignment, 'headerLeft', 'Align header left', 'L', () =>
       alignTableColumn(
         this.editor.state,
         (transaction) => this.outerView.dispatch(transaction),
+        'header',
         'left',
       ),
     );
-    this.addButton(alignment, 'center', 'Align column center', 'C', () =>
+    this.addButton(headerAlignment, 'headerCenter', 'Align header center', 'C', () =>
       alignTableColumn(
         this.editor.state,
         (transaction) => this.outerView.dispatch(transaction),
+        'header',
         'center',
       ),
     );
-    this.addButton(alignment, 'right', 'Align column right', 'R', () =>
+    this.addButton(headerAlignment, 'headerRight', 'Align header right', 'R', () =>
       alignTableColumn(
         this.editor.state,
         (transaction) => this.outerView.dispatch(transaction),
+        'header',
+        'right',
+      ),
+    );
+
+    const bodyAlignment = this.createGroup('Body alignment');
+    this.addGroupLabel(bodyAlignment, 'Body');
+    this.addButton(bodyAlignment, 'bodyLeft', 'Align body left', 'L', () =>
+      alignTableColumn(
+        this.editor.state,
+        (transaction) => this.outerView.dispatch(transaction),
+        'body',
+        'left',
+      ),
+    );
+    this.addButton(bodyAlignment, 'bodyCenter', 'Align body center', 'C', () =>
+      alignTableColumn(
+        this.editor.state,
+        (transaction) => this.outerView.dispatch(transaction),
+        'body',
+        'center',
+      ),
+    );
+    this.addButton(bodyAlignment, 'bodyRight', 'Align body right', 'R', () =>
+      alignTableColumn(
+        this.editor.state,
+        (transaction) => this.outerView.dispatch(transaction),
+        'body',
         'right',
       ),
     );
   }
 
   private activate = (): void => this.activateView(this);
+
+  private preventDragStart = (event: DragEvent): void => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   private handleSelectionUpdate = (): void => {
     if (this.active) this.refresh();
@@ -480,12 +711,24 @@ export class MarkdownTableView implements NodeView {
     this.setDisabled('columnLeft', context.column <= 0);
     this.setDisabled('columnRight', context.column >= context.width - 1);
 
-    const cell = context.table.child(context.row).child(context.column);
-    const currentAlignment = cell.attrs.align ?? null;
-    for (const alignment of ['left', 'center', 'right'] as const) {
-      const button = this.buttons.get(alignment)?.element;
-      button?.classList.toggle('active', currentAlignment === alignment);
-      button?.setAttribute('aria-pressed', String(currentAlignment === alignment));
+    const headerAlignment = normalizeAlignment(
+      context.table.child(0).child(context.column).attrs.align,
+    );
+    const bodyAlignment = normalizeAlignment(
+      context.height > 1 ? context.table.child(1).child(context.column).attrs.align : null,
+    );
+    for (const [section, currentAlignment] of [
+      ['header', headerAlignment],
+      ['body', bodyAlignment],
+    ] as const) {
+      for (const alignment of ['left', 'center', 'right'] as const) {
+        const key = `${section}${alignment[0].toUpperCase()}${alignment.slice(1)}`;
+        const button = this.buttons.get(key)?.element;
+        const active = currentAlignment === alignment;
+        button?.classList.toggle('active', active);
+        button?.setAttribute('aria-pressed', String(active));
+        if (section === 'body' && button) button.disabled = context.height <= 1;
+      }
     }
   }
 
@@ -513,6 +756,7 @@ export class MarkdownTableView implements NodeView {
 
   destroy(): void {
     this.table.removeEventListener('pointerdown', this.activate);
+    this.table.removeEventListener('dragstart', this.preventDragStart);
     this.dom.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('pointerdown', this.handleDocumentPointerDown, true);
     this.editor.off('selectionUpdate', this.handleSelectionUpdate);
@@ -551,6 +795,7 @@ export function createMarkdownTableExtensions(): Extensions {
   };
 
   const MarkdownTable = Table.extend({
+    parseMarkdown: (token: MarkdownTableToken, helpers) => parseMarkdownTable(token, helpers),
     renderMarkdown: renderMarkdownTable,
     addNodeView() {
       return (props) => {
@@ -563,6 +808,38 @@ export function createMarkdownTableExtensions(): Extensions {
     },
   });
 
+  const TableAlignmentMetadata = Extension.create({
+    name: 'tableAlignmentMetadata',
+    markdownTokenName: 'hypermdAlignedTable',
+    parseMarkdown: (token: MarkdownTableToken, helpers) => parseMarkdownTable(token, helpers),
+    markdownTokenizer: {
+      name: 'hypermdAlignedTable',
+      level: 'block',
+      start: HEADER_ALIGNMENT_PREFIX,
+      tokenize(source, _tokens, lexer) {
+        if (!source.startsWith(HEADER_ALIGNMENT_PREFIX)) return undefined;
+        const lineEnd = source.indexOf('\n');
+        if (lineEnd === -1) return undefined;
+        const metadataLine = source.slice(0, lineEnd).replace(/\r$/, '');
+        if (!metadataLine.endsWith(' -->')) return undefined;
+        const value = metadataLine.slice(HEADER_ALIGNMENT_PREFIX.length, -4);
+        const headerAlignments = parseHeaderAlignmentMetadata(value);
+        if (!headerAlignments) return undefined;
+
+        const metadataRaw = source.slice(0, lineEnd + 1);
+        const tableSource = source.slice(lineEnd + 1);
+        const tableToken = lexer.blockTokens(tableSource)[0] as MarkdownTableToken | undefined;
+        if (tableToken?.type !== 'table' || !tableToken.raw) return undefined;
+        return {
+          ...tableToken,
+          type: 'hypermdAlignedTable',
+          raw: `${metadataRaw}${tableToken.raw}`,
+          headerAlignments,
+        };
+      },
+    },
+  });
+
   const TableKeyboard = Extension.create({
     name: 'tableKeyboard',
     priority: 1_000,
@@ -572,10 +849,15 @@ export function createMarkdownTableExtensions(): Extensions {
     },
     addKeyboardShortcuts() {
       return {
-        Enter: () => addTableRowAndFocus(this.editor),
+        Enter: () => handleTableEnter(this.editor),
+        'Shift-Tab': () => {
+          if (!findTableContext(this.editor.state)) return false;
+          this.editor.commands.goToPreviousCell();
+          return true;
+        },
       };
     },
   });
 
-  return [MarkdownTable, TableRow, TableHeader, TableCell, TableKeyboard];
+  return [MarkdownTable, TableRow, TableHeader, TableCell, TableAlignmentMetadata, TableKeyboard];
 }

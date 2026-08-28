@@ -5,6 +5,7 @@
     id: string;
     label: string;
     danger?: boolean;
+    disabled?: boolean;
     separatorBefore?: boolean;
   };
   export type SidebarContextMenuItem = ContextMenuItem;
@@ -22,18 +23,21 @@
   let panel = $state<HTMLDivElement>();
   let left = $state(0);
   let top = $state(0);
-  let activeIndex = $state(0);
+  let activeId = $state<string | null>(null);
   let positioned = $state(false);
 
   function buttons(): HTMLButtonElement[] {
-    return panel ? Array.from(panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')) : [];
+    return panel
+      ? Array.from(panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'))
+      : [];
   }
 
   function focusAt(index: number): void {
     const available = buttons();
     if (available.length === 0) return;
-    activeIndex = (index + available.length) % available.length;
-    available[activeIndex].focus();
+    const button = available[(index + available.length) % available.length];
+    activeId = button.dataset.contextMenuId ?? null;
+    button.focus();
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -42,16 +46,19 @@
       onClose();
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      focusAt(activeIndex + 1);
+      const available = buttons();
+      focusAt(available.findIndex((button) => button.dataset.contextMenuId === activeId) + 1);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      focusAt(activeIndex - 1);
+      const available = buttons();
+      const current = available.findIndex((button) => button.dataset.contextMenuId === activeId);
+      focusAt((current === -1 ? 0 : current) - 1);
     } else if (event.key === 'Home') {
       event.preventDefault();
       focusAt(0);
     } else if (event.key === 'End') {
       event.preventDefault();
-      focusAt(items.length - 1);
+      focusAt(buttons().length - 1);
     }
   }
 
@@ -61,7 +68,7 @@
     items;
     left = x;
     top = y;
-    activeIndex = 0;
+    activeId = null;
     positioned = false;
     void tick().then(() => {
       if (!panel) return;
@@ -104,14 +111,18 @@
   role="menu"
   aria-label={ariaLabel}
 >
-  {#each items as item, index (item.id)}
+  {#each items as item (item.id)}
     {#if item.separatorBefore}<div class="context-menu-separator" role="separator"></div>{/if}
     <button
       class:danger={item.danger}
-      class:keyboard-active={index === activeIndex}
+      class:keyboard-active={item.id === activeId}
+      data-context-menu-id={item.id}
+      disabled={item.disabled}
       role="menuitem"
       tabindex="-1"
-      onmouseenter={() => (activeIndex = index)}
+      onmouseenter={() => {
+        if (!item.disabled) activeId = item.id;
+      }}
       onclick={() => onSelect(item.id)}
     >
       {item.label}

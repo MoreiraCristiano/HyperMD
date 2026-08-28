@@ -110,6 +110,7 @@ describe('navigation components', () => {
       x: 9999,
       y: 9999,
       items: [
+        { id: 'disabled', label: 'Disabled', disabled: true },
         { id: 'rename', label: 'Rename' },
         { id: 'delete', label: 'Delete', danger: true, separatorBefore: true },
       ],
@@ -118,8 +119,12 @@ describe('navigation components', () => {
     });
     const menu = screen.getByRole('menu', { hidden: true });
     await waitFor(() => expect(menu).toHaveStyle({ visibility: 'visible' }));
+    expect(screen.getByRole('menuitem', { name: 'Disabled' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
     await fireEvent.keyDown(window, { key: 'End' });
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveFocus();
     await fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
     await fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Delete' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(onSelect).toHaveBeenCalledWith('delete');

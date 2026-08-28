@@ -1,4 +1,6 @@
 import { Editor } from '@tiptap/core';
+import TaskItem from '@tiptap/extension-task-item';
+import TaskList from '@tiptap/extension-task-list';
 import StarterKit from '@tiptap/starter-kit';
 import { TextSelection } from '@tiptap/pm/state';
 import { TableMap } from '@tiptap/pm/tables';
@@ -22,7 +24,13 @@ function createEditor(content: string, onTransaction = vi.fn()): Editor {
   const element = document.body.appendChild(document.createElement('div'));
   const editor = new Editor({
     element,
-    extensions: [StarterKit, ...createMarkdownTableExtensions(), MarkdownSupport],
+    extensions: [
+      StarterKit,
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      ...createMarkdownTableExtensions(),
+      MarkdownSupport,
+    ],
     content,
     contentType: 'markdown',
     onTransaction,
@@ -74,6 +82,7 @@ describe('Markdown table editing', () => {
     expect(table.child(1).child(2).textContent).toBe('A | B');
 
     const serialized = editor.markdown!.serialize(editor.getJSON());
+    expect(serialized).not.toContain('hypermd-table-header-align');
     expect(serialized).toContain(':----');
     expect(serialized).toContain(':-----:');
     expect(serialized).toContain('-----:');
@@ -113,6 +122,36 @@ describe('Markdown table editing', () => {
     expect(rendered).toMatch(/\|\s+\|\s*X\s+\|/);
   });
 
+  it('preserves an explicitly unaligned header over an aligned body', () => {
+    const editor = createEditor(
+      '<!-- hypermd-table-header-align: [null] -->\n| Header |\n| ---: |\n| Value |',
+    );
+    const table = editor.state.doc.firstChild!;
+    expect(table.child(0).child(0).attrs.align).toBeNull();
+    expect(table.child(1).child(0).attrs.align).toBe('right');
+    expect(editor.markdown!.serialize(editor.getJSON())).toContain(
+      '<!-- hypermd-table-header-align: [null] -->',
+    );
+  });
+
+  it('creates a body cell with body alignment when adding below a header-only table', () => {
+    const headerOnly = '<!-- hypermd-table-header-align: ["center"] -->\n| Header |\n| --- |';
+    const editor = createEditor(headerOnly);
+    selectCell(editor, 0, 0);
+    expect(addTableRowAndFocus(editor)).toBe(true);
+    const table = editor.state.doc.firstChild!;
+    expect(table.child(1).child(0).type.name).toBe('tableCell');
+    expect(table.child(1).child(0).attrs.align).toBeNull();
+
+    const tabEditor = createEditor(headerOnly);
+    selectCell(tabEditor, 0, 0);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    tabEditor.view.dom.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(tabEditor.state.doc.firstChild!.child(1).child(0).type.name).toBe('tableCell');
+    expect(tabEditor.state.doc.firstChild!.child(1).child(0).attrs.align).toBeNull();
+  });
+
   it('moves body rows while keeping the header fixed and restoring the active column', () => {
     const editor = createEditor(markdown);
     selectCell(editor, 2, 1);
@@ -132,7 +171,7 @@ describe('Markdown table editing', () => {
     expect(moveTableRow(editor.state, editor.view.dispatch, 1)).toBe(false);
   });
 
-  it('moves and aligns complete columns with boundary protection', () => {
+  it('moves columns and aligns header and body independently', () => {
     const editor = createEditor(markdown);
     selectCell(editor, 1, 1);
 
@@ -146,13 +185,27 @@ describe('Markdown table editing', () => {
     expect(moveTableColumn(editor.state, editor.view.dispatch, 1)).toBe(true);
 
     expect(
-      alignTableColumn(editor.state, (transaction) => editor.view.dispatch(transaction), 'right'),
+      alignTableColumn(
+        editor.state,
+        (transaction) => editor.view.dispatch(transaction),
+        'body',
+        'right',
+      ),
     ).toBe(true);
     const context = findTableContext(editor.state)!;
-    for (let row = 0; row < context.height; row += 1) {
+    expect(context.table.child(0).child(context.column).attrs.align).toBe('center');
+    for (let row = 1; row < context.height; row += 1) {
       expect(context.table.child(row).child(context.column).attrs.align).toBe('right');
     }
-    expect(editor.markdown!.serialize(editor.getJSON())).toMatch(/-+:\s*\|/);
+    const serialized = editor.markdown!.serialize(editor.getJSON());
+    expect(serialized).toContain('<!-- hypermd-table-header-align:');
+    expect(serialized).toMatch(/-+:\s*\|/);
+
+    const restored = createEditor(serialized);
+    selectCell(restored, 1, context.column);
+    const restoredContext = findTableContext(restored.state)!;
+    expect(restoredContext.table.child(0).child(context.column).attrs.align).toBe('center');
+    expect(restoredContext.table.child(1).child(context.column).attrs.align).toBe('right');
   });
 
   it('rejects table commands outside tables and unsupported merged columns', () => {
@@ -160,7 +213,7 @@ describe('Markdown table editing', () => {
     expect(findTableContext(editor.state)).toBeNull();
     expect(moveTableRow(editor.state, editor.view.dispatch, 1)).toBe(false);
     expect(moveTableColumn(editor.state, editor.view.dispatch, 1)).toBe(false);
-    expect(alignTableColumn(editor.state, editor.view.dispatch, 'center')).toBe(false);
+    expect(alignTableColumn(editor.state, editor.view.dispatch, 'body', 'center')).toBe(false);
     expect(addTableRowAndFocus(editor)).toBe(false);
 
     const tableEditor = createEditor(markdown);
@@ -178,7 +231,9 @@ describe('Markdown table editing', () => {
     tableEditor.commands.setContent({ type: 'doc', content: [malformed.toJSON()] });
     selectCell(tableEditor, 0, 0);
     expect(moveTableColumn(tableEditor.state, tableEditor.view.dispatch, 1)).toBe(false);
-    expect(alignTableColumn(tableEditor.state, tableEditor.view.dispatch, 'left')).toBe(false);
+    expect(alignTableColumn(tableEditor.state, tableEditor.view.dispatch, 'body', 'left')).toBe(
+      false,
+    );
   });
 
   it('adds rows with Enter semantics and uses spreadsheet Tab navigation', () => {
@@ -210,6 +265,70 @@ describe('Markdown table editing', () => {
     });
     editor.view.dom.dispatchEvent(previous);
     expect(previous.defaultPrevented).toBe(true);
+
+    selectCell(editor, 0, 0);
+    const previousFromFirst = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(previousFromFirst);
+    expect(previousFromFirst.defaultPrevented).toBe(true);
+    expect(findTableContext(editor.state)).toMatchObject({ row: 0, column: 0 });
+  });
+
+  it.each([
+    ['bulletList', () => ({ command: 'toggleBulletList' as const, item: 'listItem' })],
+    ['taskList', () => ({ command: 'toggleTaskList' as const, item: 'taskItem' })],
+  ])('uses Enter to split a %s inside a cell', (_listType, setup) => {
+    const editor = createEditor(markdown);
+    selectCell(editor, 1, 0);
+    const { command, item } = setup();
+    expect(editor.chain().focus()[command]().insertContent('First').run()).toBe(true);
+    const height = findTableContext(editor.state)!.height;
+
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    editor.view.dom.dispatchEvent(enter);
+
+    const context = findTableContext(editor.state)!;
+    const list = context.table.child(context.row).child(context.column).firstChild!;
+    expect(enter.defaultPrevented).toBe(true);
+    expect(context.height).toBe(height);
+    expect(list.type.name).toBe(_listType);
+    expect(list.childCount).toBe(2);
+    expect(list.child(1).type.name).toBe(item);
+    if (item === 'taskItem') expect(list.child(1).attrs.checked).toBe(false);
+  });
+
+  it('round-trips flat lists and inline formatting inside table cells', () => {
+    const source = [
+      '| Bullets | Ordered | Tasks |',
+      '| --- | --- | --- |',
+      '| - **one**<br>- two | 3. three<br>4. four | - [x] done<br>- [ ] pending |',
+    ].join('\n');
+    const editor = createEditor(source);
+    const row = editor.state.doc.firstChild!.child(1);
+
+    expect(row.child(0).firstChild?.type.name).toBe('bulletList');
+    expect(row.child(0).firstChild?.childCount).toBe(2);
+    expect(row.child(0).firstChild?.firstChild?.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+      'bold',
+    );
+    expect(row.child(1).firstChild?.type.name).toBe('orderedList');
+    expect(row.child(1).firstChild?.attrs.start).toBe(3);
+    expect(row.child(2).firstChild?.type.name).toBe('taskList');
+    expect(row.child(2).firstChild?.child(0).attrs.checked).toBe(true);
+    expect(row.child(2).firstChild?.child(1).attrs.checked).toBe(false);
+
+    const restored = createEditor(editor.markdown!.serialize(editor.getJSON()));
+    const restoredRow = restored.state.doc.firstChild!.child(1);
+    expect(restoredRow.child(0).firstChild?.type.name).toBe('bulletList');
+    expect(restoredRow.child(0).firstChild?.childCount).toBe(2);
+    expect(restoredRow.child(1).firstChild?.type.name).toBe('orderedList');
+    expect(restoredRow.child(1).firstChild?.attrs.start).toBe(3);
+    expect(restoredRow.child(2).firstChild?.type.name).toBe('taskList');
+    expect(restoredRow.child(2).firstChild?.childCount).toBe(2);
   });
 
   it('inserts a table as one undoable transaction and selects its first cell', () => {
@@ -251,10 +370,14 @@ describe('Markdown table editing', () => {
     wrapper.dispatchEvent(unrelatedKey);
     expect(wrapper).toHaveClass('active');
 
-    wrapper.querySelector<HTMLButtonElement>('[aria-label="Align column center"]')!.click();
+    wrapper.querySelector<HTMLButtonElement>('[aria-label="Align header center"]')!.click();
     expect(findTableContext(editor.state)!.table.child(0).child(0).attrs.align).toBe('center');
+    expect(findTableContext(editor.state)!.table.child(1).child(0).attrs.align).toBe('left');
+    wrapper.querySelector<HTMLButtonElement>('[aria-label="Align body right"]')!.click();
+    expect(findTableContext(editor.state)!.table.child(1).child(0).attrs.align).toBe('right');
     wrapper.querySelector<HTMLButtonElement>('[aria-label="Add row below"]')!.click();
     expect(findTableContext(editor.state)!.height).toBe(4);
+    expect(findTableContext(editor.state)!.table.child(2).child(0).attrs.align).toBe('right');
 
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(wrapper).not.toHaveClass('active');
@@ -265,8 +388,30 @@ describe('Markdown table editing', () => {
     ).toBe(true);
   });
 
+  it('blocks drag-and-drop initiated from table cells without changing the document', () => {
+    const onTransaction = vi.fn();
+    const editor = createEditor(markdown, onTransaction);
+    const table = document.querySelector<HTMLTableElement>('.hypermd-table')!;
+    const header = table.querySelector('th')!;
+    const cell = table.querySelector('td')!;
+    const documentDrag = vi.fn();
+    document.addEventListener('dragstart', documentDrag);
+    const before = editor.state.doc;
+
+    for (const target of [header, cell]) {
+      const drag = new Event('dragstart', { bubbles: true, cancelable: true });
+      target.dispatchEvent(drag);
+      expect(drag.defaultPrevented).toBe(true);
+    }
+
+    expect(documentDrag).not.toHaveBeenCalled();
+    expect(editor.state.doc.eq(before)).toBe(true);
+    expect(onTransaction).not.toHaveBeenCalled();
+    document.removeEventListener('dragstart', documentDrag);
+  });
+
   it('disables destructive header and last-column controls and exits with Escape', () => {
-    const editor = createEditor('| Only |\n| --- |\n| Value |');
+    const editor = createEditor('| Only |\n| --- |');
     const wrapper = document.querySelector<HTMLElement>('.hypermd-table-wrapper')!;
     const table = wrapper.querySelector('table')!;
     selectCell(editor, 0, 0);
@@ -275,6 +420,9 @@ describe('Markdown table editing', () => {
     expect(wrapper.querySelector<HTMLButtonElement>('[aria-label="Remove row"]')).toBeDisabled();
     expect(wrapper.querySelector<HTMLButtonElement>('[aria-label="Move row up"]')).toBeDisabled();
     expect(wrapper.querySelector<HTMLButtonElement>('[aria-label="Remove column"]')).toBeDisabled();
+    expect(
+      wrapper.querySelector<HTMLButtonElement>('[aria-label="Align body left"]'),
+    ).toBeDisabled();
     expect(
       wrapper.querySelector<HTMLButtonElement>('[aria-label="Move column left"]'),
     ).toBeDisabled();

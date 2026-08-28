@@ -1,6 +1,7 @@
 import { Editor, type Extensions } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import type { EditorView as CodeMirrorView } from '@codemirror/view';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { fireEvent, waitFor } from '@testing-library/dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeLanguageSelector } from './codeblock/languageSelector';
@@ -16,6 +17,13 @@ import { tabsState } from '../tabs/tabStore';
 import { sidebarState } from '../sidebar/sidebarStore';
 import { tauriMocks } from '../../test/tauriMocks';
 import { ListKeyboard } from './extensions/listKeyboard';
+import {
+  BlockListItem,
+  BlockOrderedList,
+  BlockTaskItem,
+  BlockTaskList,
+} from './extensions/listItem';
+import { MarkdownSupport } from './markdown';
 import {
   clearFind,
   DocumentFind,
@@ -34,6 +42,42 @@ function editor(content: string, extensions: Extensions = [StarterKit]) {
   });
   editors.push(instance);
   return instance;
+}
+
+function markdownEditor(content: string) {
+  const instance = new Editor({
+    element: document.createElement('div'),
+    extensions: [
+      StarterKit.configure({ codeBlock: false, listItem: false, orderedList: false }),
+      BlockListItem,
+      BlockOrderedList,
+      BlockTaskList,
+      BlockTaskItem,
+      CodeMirrorCodeBlock,
+      MarkdownSupport,
+    ],
+    content,
+    contentType: 'markdown',
+  });
+  editors.push(instance);
+  return instance;
+}
+
+function selectTextEnd(instance: Editor, text: string): void {
+  let position: number | undefined;
+  instance.state.doc.descendants((node, pos) => {
+    if (node.isTextblock && node.textContent === text) position = pos + 1 + node.content.size;
+  });
+  if (position === undefined) throw new Error(`Text block not found: ${text}`);
+  instance.commands.setTextSelection(position);
+}
+
+function parentOfCodeBlock(instance: Editor): ProseMirrorNode | null {
+  let found: ProseMirrorNode | null = null;
+  instance.state.doc.descendants((node, _position, parent) => {
+    if (node.type.name === 'codeBlock') found = parent;
+  });
+  return found;
 }
 
 afterEach(() => {
@@ -86,7 +130,8 @@ describe('editor extensions', () => {
 
   it('handles list Tab shortcuts only inside list items', () => {
     const instance = editor('<ul><li><p>One</p></li><li><p>Two</p></li></ul><p>Outside</p>', [
-      StarterKit,
+      StarterKit.configure({ listItem: false }),
+      BlockListItem,
       ListKeyboard,
     ]);
     instance.commands.setTextSelection(9);
@@ -98,6 +143,125 @@ describe('editor extensions', () => {
     const before = plain.getHTML();
     plain.commands.keyboardShortcut('Tab');
     expect(plain.getHTML()).toBe(before);
+  });
+
+  it('creates fenced code blocks as the only content of nested list items', () => {
+    const enter = editor('<ul><li><p>outer</p><ul><li><p>```js</p></li></ul></li></ul>', [
+      StarterKit.configure({ codeBlock: false, listItem: false }),
+      BlockListItem,
+      CodeMirrorCodeBlock,
+    ]);
+    selectTextEnd(enter, '```js');
+    fireEvent.keyDown(enter.view.dom, { key: 'Enter' });
+    const nestedEnterItem = enter.state.doc.firstChild?.firstChild?.lastChild?.firstChild;
+    expect(nestedEnterItem?.firstChild?.type.name).toBe('codeBlock');
+    expect(nestedEnterItem?.firstChild?.attrs.language).toBe('js');
+
+    const space = editor('<ol><li><p>outer</p><ol><li><p>~~~python</p></li></ol></li></ol>', [
+      StarterKit.configure({ codeBlock: false, listItem: false }),
+      BlockListItem,
+      CodeMirrorCodeBlock,
+    ]);
+    selectTextEnd(space, '~~~python');
+    const position = space.state.selection.from;
+    expect(
+      space.view.someProp('handleTextInput', (handler) =>
+        handler(space.view, position, position, ' ', () => space.state.tr),
+      ),
+    ).toBe(true);
+    const nestedSpaceItem = space.state.doc.firstChild?.firstChild?.lastChild?.firstChild;
+    expect(nestedSpaceItem?.firstChild?.type.name).toBe('codeBlock');
+    expect(nestedSpaceItem?.firstChild?.attrs.language).toBe('python');
+
+    const task = markdownEditor('');
+    task.commands.setContent({
+      type: 'doc',
+      content: [
+        {
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: false },
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'outer' }] },
+                {
+                  type: 'taskList',
+                  content: [
+                    {
+                      type: 'taskItem',
+                      attrs: { checked: true },
+                      content: [{ type: 'paragraph', content: [{ type: 'text', text: '```ts' }] }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    selectTextEnd(task, '```ts');
+    fireEvent.keyDown(task.view.dom, { key: 'Enter' });
+    const nestedTaskItem = task.state.doc.firstChild?.firstChild?.lastChild?.firstChild;
+    expect(nestedTaskItem?.firstChild?.type.name).toBe('codeBlock');
+    expect(nestedTaskItem?.firstChild?.attrs.language).toBe('ts');
+    expect(nestedTaskItem?.attrs.checked).toBe(true);
+  });
+
+  it('round-trips code-only items in bullet, ordered, and task lists', () => {
+    const samples = [
+      { list: 'bulletList', item: 'listItem', language: 'js', code: 'const value = 1' },
+      { list: 'orderedList', item: 'listItem', language: 'python', code: 'print(1)' },
+      { list: 'taskList', item: 'taskItem', language: 'ts', code: 'const done = true' },
+    ];
+
+    for (const sample of samples) {
+      const original = markdownEditor('');
+      const itemAttrs = sample.item === 'taskItem' ? { checked: false } : undefined;
+      const nestedAttrs = sample.item === 'taskItem' ? { checked: true } : undefined;
+      original.commands.setContent({
+        type: 'doc',
+        content: [
+          {
+            type: sample.list,
+            content: [
+              {
+                type: sample.item,
+                attrs: itemAttrs,
+                content: [
+                  { type: 'paragraph', content: [{ type: 'text', text: 'outer' }] },
+                  {
+                    type: sample.list,
+                    content: [
+                      {
+                        type: sample.item,
+                        attrs: nestedAttrs,
+                        content: [
+                          {
+                            type: 'codeBlock',
+                            attrs: { language: sample.language },
+                            content: [{ type: 'text', text: sample.code }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const codeParent = parentOfCodeBlock(original);
+      expect(codeParent?.firstChild?.type.name).toBe('codeBlock');
+      expect(codeParent?.firstChild?.attrs.language).toBe(sample.language);
+      expect(codeParent?.childCount).toBe(1);
+
+      const serialized = original.markdown!.serialize(original.getJSON());
+      const restored = markdownEditor(serialized);
+      expect(restored.getJSON()).toEqual(original.getJSON());
+    }
   });
 
   it('renders and refreshes Markdown image node views', async () => {

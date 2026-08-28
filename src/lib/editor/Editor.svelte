@@ -2,9 +2,7 @@
   import { onMount } from 'svelte';
   import { Editor } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
-  import TaskList from '@tiptap/extension-task-list';
-  import TaskItem from '@tiptap/extension-task-item';
-  import { EditorState, TextSelection } from '@tiptap/pm/state';
+  import { EditorState, Selection, TextSelection } from '@tiptap/pm/state';
   import { MarkdownSupport } from './markdown';
   import { DocumentFind, clearFind, findText, moveFindMatch } from './find/findPlugin';
   import { MarkdownImage, refreshRenderedImages } from './extensions/image';
@@ -15,9 +13,16 @@
   } from './extensions/table';
   import { CodeMirrorCodeBlock } from './extensions/codeBlock';
   import { ListKeyboard } from './extensions/listKeyboard';
+  import {
+    BlockListItem,
+    BlockOrderedList,
+    BlockTaskItem,
+    BlockTaskList,
+  } from './extensions/listItem';
   import { BlockMovement } from './extensions/blockMovement';
   import { isSupportedImageMime } from './imageImport';
   import { sidebarState } from '../sidebar/sidebarStore';
+  import SidebarContextMenu, { type ContextMenuItem } from '../sidebar/SidebarContextMenu.svelte';
   import type { EditorApi, EditorCommand, StoredSelection } from './editorTypes';
 
   type Props = {
@@ -39,7 +44,95 @@
   let imageFocusZoom = $state(1);
   let focusedImageWidth = $state(0);
   let focusedImageHeight = $state(0);
+  let contextMenu = $state<{ x: number; y: number } | null>(null);
   const IMAGE_FOCUS_ZOOM_LEVELS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5];
+  const contextCommands = new Set<EditorCommand>([
+    'undo',
+    'redo',
+    'cut',
+    'copy',
+    'paste',
+    'selectAll',
+  ]);
+
+  function editorContextItems(): readonly ContextMenuItem[] {
+    const editor = editorInstance;
+    const hasSelection = Boolean(editor && !editor.state.selection.empty);
+    return [
+      { id: 'undo', label: 'Undo', disabled: !editor?.can().undo() },
+      { id: 'redo', label: 'Redo', disabled: !editor?.can().redo() },
+      { id: 'cut', label: 'Cut', separatorBefore: true, disabled: !hasSelection },
+      { id: 'copy', label: 'Copy', disabled: !hasSelection },
+      { id: 'paste', label: 'Paste' },
+      { id: 'selectAll', label: 'Select All', separatorBefore: true },
+    ];
+  }
+
+  function contextPosition(event: MouseEvent): number | null {
+    const editor = editorInstance;
+    if (!editor) return null;
+    try {
+      return editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function openEditorContextMenu(event: MouseEvent) {
+    const editor = editorInstance;
+    const target = event.target;
+    if (
+      !editor ||
+      !(target instanceof Element) ||
+      !target.closest('.ProseMirror') ||
+      target.closest('.hypermd-code-block')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const position = contextPosition(event);
+    const { from, to } = editor.state.selection;
+    if (position !== null && (position < from || position > to)) {
+      editor.view.dispatch(
+        editor.state.tr
+          .setSelection(Selection.near(editor.state.doc.resolve(position)))
+          .scrollIntoView(),
+      );
+    }
+    contextMenu = { x: event.clientX, y: event.clientY };
+  }
+
+  async function execute(command: EditorCommand): Promise<boolean> {
+    const editor = editorInstance;
+    if (!editor) return false;
+    if (command === 'undo') return editor.commands.undo();
+    if (command === 'redo') return editor.commands.redo();
+    if (command === 'selectAll') return editor.chain().focus().selectAll().run();
+    if (command === 'paste') {
+      const text = await navigator.clipboard.readText();
+      if (!text) return false;
+      return editor.chain().focus().insertContent(text, { contentType: 'markdown' }).run();
+    }
+
+    const { from, to } = editor.state.selection;
+    if (from === to) return false;
+    const text = editor.state.doc.textBetween(from, to, '\n');
+    await navigator.clipboard.writeText(text);
+    if (command === 'cut') return editor.chain().focus().deleteSelection().run();
+    return true;
+  }
+
+  async function executeContextAction(action: string) {
+    contextMenu = null;
+    if (!contextCommands.has(action as EditorCommand)) return;
+    try {
+      await execute(action as EditorCommand);
+    } finally {
+      editorInstance?.commands.focus();
+    }
+  }
 
   function openImageFocus(event: MouseEvent) {
     const image =
@@ -142,10 +235,14 @@
       extensions: [
         StarterKit.configure({
           codeBlock: false,
+          listItem: false,
+          orderedList: false,
           link: { openOnClick: false, autolink: true, linkOnPaste: true },
         }),
-        TaskList,
-        TaskItem.configure({ nested: true }),
+        BlockListItem,
+        BlockOrderedList,
+        BlockTaskList,
+        BlockTaskItem,
         ListKeyboard,
         BlockMovement,
         CodeMirrorCodeBlock,
@@ -201,6 +298,7 @@
     });
     editorInstance = editor;
     element.addEventListener('dblclick', openImageFocus);
+    element.addEventListener('contextmenu', openEditorContextMenu);
     if (!editor.markdown) throw new Error('Markdown extension was not initialized.');
     const markdownManager = editor.markdown!;
 
@@ -218,24 +316,6 @@
         );
       }
       return state;
-    }
-
-    async function execute(command: EditorCommand): Promise<boolean> {
-      if (command === 'undo') return editor.commands.undo();
-      if (command === 'redo') return editor.commands.redo();
-      if (command === 'selectAll') return editor.chain().focus().selectAll().run();
-      if (command === 'paste') {
-        const text = await navigator.clipboard.readText();
-        if (!text) return false;
-        return editor.chain().focus().insertContent(text, { contentType: 'markdown' }).run();
-      }
-
-      const { from, to } = editor.state.selection;
-      if (from === to) return false;
-      const text = editor.state.doc.textBetween(from, to, '\n');
-      await navigator.clipboard.writeText(text);
-      if (command === 'cut') return editor.chain().focus().deleteSelection().run();
-      return true;
     }
 
     function transactionWithImage(
@@ -260,6 +340,7 @@
       getState: () => editor.state,
       setState: (state) => {
         focusedImage = null;
+        contextMenu = null;
         findOpen = false;
         findQuery = '';
         findCount = 0;
@@ -288,6 +369,7 @@
     onReady?.(api);
     return () => {
       element.removeEventListener('dblclick', openImageFocus);
+      element.removeEventListener('contextmenu', openEditorContextMenu);
       editorInstance = null;
       editor.destroy();
     };
@@ -342,6 +424,16 @@
     </div>
   {/if}
   <div class="editor-host" bind:this={element}></div>
+  {#if contextMenu}
+    <SidebarContextMenu
+      x={contextMenu.x}
+      y={contextMenu.y}
+      items={editorContextItems()}
+      ariaLabel="Editor actions"
+      onSelect={(action) => void executeContextAction(action)}
+      onClose={() => (contextMenu = null)}
+    />
+  {/if}
   {#if focusedImage}
     <div
       bind:this={imageFocusBackdrop}

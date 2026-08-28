@@ -8,6 +8,7 @@
     createMarkdownFile,
     createWorkspaceFolder,
     moveWorkspaceEntries,
+    pathName,
     readWorkspaceDirectory,
     relativeWorkspacePath,
     removeWorkspaceEntry,
@@ -287,6 +288,7 @@
     const node = detachNode(entries, oldPath);
     if (!node) return;
     rewriteNodePaths(node, oldPath, newPath);
+    node.name = pathName(newPath);
     const root = $sidebarState.workspacePath;
     if (root && samePath(destination, root)) {
       entries.push(node);
@@ -475,15 +477,13 @@
     });
     if (!name || name === node.name) return;
     await run(async () => {
-      const newPath = await renameWorkspaceEntry(
-        root,
-        node.path,
-        name,
-        node.isDirectory,
-        node.type,
-      );
-      onRenamed(node.path, newPath, node.isDirectory);
-      await loadRoot();
+      const oldPath = node.path;
+      const newPath = await renameWorkspaceEntry(root, oldPath, name, node.isDirectory, node.type);
+      const move = { path: oldPath, newPath, isDirectory: node.isDirectory };
+      applyTreeMove(oldPath, newPath, parentPath(newPath));
+      rewriteSelectionAfterMoves([move]);
+      selectedDirectory = node.isDirectory ? newPath : parentPath(newPath);
+      onRenamed(oldPath, newPath, node.isDirectory);
     });
   }
 
