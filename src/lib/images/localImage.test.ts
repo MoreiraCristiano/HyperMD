@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { tauriMocks } from '../../test/tauriMocks';
 import { sidebarState } from '../sidebar/sidebarStore';
-import { markdownImageUrl, validateWorkspaceImagePath, workspaceImageUrl } from './localImage';
+import {
+  markdownImageUrl,
+  relativeMarkdownImagePath,
+  resolveMarkdownImagePath,
+  validateWorkspaceImagePath,
+  workspaceImageUrl,
+} from './localImage';
 
 describe('local images', () => {
   beforeEach(() => {
@@ -29,6 +35,15 @@ describe('local images', () => {
     expect(tauriMocks.convertFileSrc).toHaveBeenCalledWith('/work/a.png');
   });
 
+  it('creates portable Markdown paths for local images', () => {
+    expect(relativeMarkdownImagePath('/work/docs', '/work/docs/a.png')).toBe('./a.png');
+    expect(relativeMarkdownImagePath('/work/docs', '/work/images/a.png')).toBe('../images/a.png');
+    expect(relativeMarkdownImagePath('C:\\Work\\docs', 'c:\\work\\a.png')).toBe('../a.png');
+    expect(() => relativeMarkdownImagePath('C:\\work', 'D:\\images\\a.png')).toThrow(
+      'relative path',
+    );
+  });
+
   it('resolves markdown sources and rejects unsafe schemes or paths', async () => {
     await expect(markdownImageUrl('https://example.com/a.png', null)).resolves.toBe(
       'https://example.com/a.png',
@@ -39,5 +54,12 @@ describe('local images', () => {
     for (const source of ['', 'data:image/png,a', 'javascript:alert(1)', '../../outside.png']) {
       await expect(markdownImageUrl(source, '/work/docs/a.md')).resolves.toBe('');
     }
+    await expect(
+      resolveMarkdownImagePath('../images/a.png?raw=1', '/work/docs/a.md'),
+    ).resolves.toBe('/work/images/a.png');
+    await expect(
+      resolveMarkdownImagePath('https://example.com/a.png', '/work/docs/a.md'),
+    ).resolves.toBeNull();
+    await expect(resolveMarkdownImagePath('%zz.png', '/work/docs/a.md')).resolves.toBeNull();
   });
 });

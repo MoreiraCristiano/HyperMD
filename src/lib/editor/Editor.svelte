@@ -22,6 +22,7 @@
   import { BlockMovement } from './extensions/blockMovement';
   import { isSupportedImageMime } from './imageImport';
   import { sidebarState } from '../sidebar/sidebarStore';
+  import { WORKSPACE_IMAGE_DRAG_TYPE } from '../sidebar/dragTypes';
   import SidebarContextMenu, { type ContextMenuItem } from '../sidebar/SidebarContextMenu.svelte';
   import type { EditorApi, EditorCommand, StoredSelection } from './editorTypes';
 
@@ -29,9 +30,10 @@
     onTransaction?: (state: EditorState, docChanged: boolean) => void;
     onReady?: (api: EditorApi) => void;
     onImagePaste?: (blob: Blob, selection: StoredSelection) => Promise<void>;
+    onWorkspaceImageDrop?: (path: string, selection: StoredSelection) => Promise<void>;
   };
 
-  let { onTransaction, onReady, onImagePaste }: Props = $props();
+  let { onTransaction, onReady, onImagePaste, onWorkspaceImageDrop }: Props = $props();
   let element: HTMLDivElement;
   let findInput = $state<HTMLInputElement>();
   let editorInstance: Editor | null = null;
@@ -76,6 +78,33 @@
     } catch {
       return null;
     }
+  }
+
+  function isWorkspaceImageDrag(event: DragEvent): boolean {
+    return Boolean(event.dataTransfer?.types.includes(WORKSPACE_IMAGE_DRAG_TYPE));
+  }
+
+  function handleWorkspaceImageDragOver(event: DragEvent) {
+    if (!isWorkspaceImageDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect =
+        event.target instanceof Element && event.target.closest('.hypermd-code-block')
+          ? 'none'
+          : 'copy';
+    }
+  }
+
+  function handleWorkspaceImageDrop(event: DragEvent) {
+    if (!isWorkspaceImageDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.target instanceof Element && event.target.closest('.hypermd-code-block')) return;
+    const path = event.dataTransfer?.getData(WORKSPACE_IMAGE_DRAG_TYPE) ?? '';
+    const position = contextPosition(event);
+    if (!path || position === null || !onWorkspaceImageDrop) return;
+    void onWorkspaceImageDrop(path, { anchor: position, head: position });
   }
 
   function openEditorContextMenu(event: MouseEvent) {
@@ -299,6 +328,8 @@
     editorInstance = editor;
     element.addEventListener('dblclick', openImageFocus);
     element.addEventListener('contextmenu', openEditorContextMenu);
+    element.addEventListener('dragover', handleWorkspaceImageDragOver, true);
+    element.addEventListener('drop', handleWorkspaceImageDrop, true);
     if (!editor.markdown) throw new Error('Markdown extension was not initialized.');
     const markdownManager = editor.markdown!;
 
@@ -370,6 +401,8 @@
     return () => {
       element.removeEventListener('dblclick', openImageFocus);
       element.removeEventListener('contextmenu', openEditorContextMenu);
+      element.removeEventListener('dragover', handleWorkspaceImageDragOver, true);
+      element.removeEventListener('drop', handleWorkspaceImageDrop, true);
       editorInstance = null;
       editor.destroy();
     };

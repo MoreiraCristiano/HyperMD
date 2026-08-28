@@ -6,6 +6,7 @@ import {
   createMarkdownFile,
   createWorkspaceFolder,
   isInsideWorkspace,
+  listWorkspaceMarkdownFiles,
   moveWorkspaceEntries,
   pathName,
   readWorkspaceDirectory,
@@ -55,6 +56,25 @@ describe('workspace', () => {
       ['Folder', null],
       ['photo.PNG', 'image'],
       ['z.md', 'markdown'],
+    ]);
+  });
+
+  it('lists visible Markdown files recursively', async () => {
+    tauriMocks.readDir.mockImplementation(async (path: string) =>
+      path === '/work/docs'
+        ? [
+            { name: 'nested.md', isFile: true, isDirectory: false, isSymlink: false },
+            { name: '.hidden.md', isFile: true, isDirectory: false, isSymlink: false },
+          ]
+        : [
+            { name: 'docs', isFile: false, isDirectory: true, isSymlink: false },
+            { name: 'root.md', isFile: true, isDirectory: false, isSymlink: false },
+            { name: 'image.png', isFile: true, isDirectory: false, isSymlink: false },
+          ],
+    );
+    await expect(listWorkspaceMarkdownFiles('/work')).resolves.toEqual([
+      '/work/docs/nested.md',
+      '/work/root.md',
     ]);
   });
 

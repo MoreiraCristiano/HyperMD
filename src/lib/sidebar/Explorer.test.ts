@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriMocks } from '../../test/tauriMocks';
 import { dialogService } from '../dialogs/dialogStore';
 import Explorer from './Explorer.svelte';
+import { WORKSPACE_ENTRY_DRAG_TYPE, WORKSPACE_IMAGE_DRAG_TYPE } from './dragTypes';
 import { sidebarActions, sidebarState } from './sidebarStore';
 
 const file = (name: string) => ({
@@ -26,7 +27,7 @@ describe('Explorer', () => {
     onChangeWorkspace: vi.fn().mockResolvedValue(true),
     onBeforeDelete: vi.fn().mockResolvedValue(true),
     onDeleted: vi.fn(),
-    onRenamed: vi.fn(),
+    onRenamed: vi.fn().mockResolvedValue(undefined),
     onError: vi.fn(),
   });
 
@@ -203,6 +204,12 @@ describe('Explorer', () => {
     const note = screen.getByRole('treeitem', { name: /note.md/ });
     const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
     await fireEvent.dragStart(note, { dataTransfer: transfer });
+    expect(transfer.effectAllowed).toBe('move');
+    expect(transfer.setData).toHaveBeenCalledWith(WORKSPACE_ENTRY_DRAG_TYPE, '/work/note.md');
+    expect(transfer.setData).not.toHaveBeenCalledWith(
+      WORKSPACE_IMAGE_DRAG_TYPE,
+      expect.any(String),
+    );
     await fireEvent.dragOver(folder, { dataTransfer: transfer });
     await fireEvent.drop(folder, { dataTransfer: transfer });
     await waitFor(() =>
@@ -212,6 +219,59 @@ describe('Explorer', () => {
     tauriMocks.readDir.mockRejectedValueOnce(new Error('read failed'));
     sidebarActions.refreshWorkspace('/work');
     await waitFor(() => expect(handlers.onError).toHaveBeenCalledWith('read failed'));
+  });
+
+  it('exposes dragged images as copyable editor payloads', async () => {
+    render(Explorer, props());
+    const image = await screen.findByRole('treeitem', { name: /a.png/ });
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+
+    await fireEvent.dragStart(image, { dataTransfer: transfer });
+
+    expect(transfer.effectAllowed).toBe('copyMove');
+    expect(transfer.setData).toHaveBeenCalledWith(WORKSPACE_ENTRY_DRAG_TYPE, '/work/a.png');
+    expect(transfer.setData).toHaveBeenCalledWith(WORKSPACE_IMAGE_DRAG_TYPE, '/work/a.png');
+  });
+
+  it('awaits reference updates sequentially for multi-file moves', async () => {
+    const handlers = props();
+    let finishFirst!: () => void;
+    handlers.onRenamed
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    render(Explorer, handlers);
+    const folder = await screen.findByRole('treeitem', { name: /docs/ });
+    const note = screen.getByRole('treeitem', { name: /note.md/ });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    await fireEvent.click(note, { ctrlKey: true });
+    await fireEvent.click(image, { ctrlKey: true });
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+
+    await fireEvent.dragStart(note, { dataTransfer: transfer });
+    await fireEvent.dragOver(folder, { dataTransfer: transfer });
+    await fireEvent.drop(folder, { dataTransfer: transfer });
+    await waitFor(() => expect(handlers.onRenamed).toHaveBeenCalledTimes(1));
+    finishFirst();
+    await waitFor(() => expect(handlers.onRenamed).toHaveBeenCalledTimes(2));
+  });
+
+  it('reports reference update failures after moving an image', async () => {
+    const handlers = props();
+    handlers.onRenamed.mockRejectedValueOnce(new Error('reference update failed'));
+    render(Explorer, handlers);
+    const folder = await screen.findByRole('treeitem', { name: /docs/ });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+
+    await fireEvent.dragStart(image, { dataTransfer: transfer });
+    await fireEvent.dragOver(folder, { dataTransfer: transfer });
+    await fireEvent.drop(folder, { dataTransfer: transfer });
+    await waitFor(() => expect(handlers.onError).toHaveBeenCalledWith('reference update failed'));
   });
 
   it('handles multi-delete cancellation, denial, and completion from keyboard', async () => {

@@ -9,7 +9,7 @@
     onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
-    onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => void;
+    onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => Promise<void>;
     onError: (message: string) => void;
   };
 
@@ -53,24 +53,27 @@
   });
 </script>
 
-{#if $sidebarState.visible}
-  <aside class="sidebar" style:width={`${dragWidth ?? $sidebarState.width}px`} aria-label="Sidebar">
-    <div class:hidden={$sidebarState.activeView !== 'explorer'} class="sidebar-view">
-      <Explorer
-        activePath={$activeTab?.path ?? null}
-        {onOpenFile}
-        {onChangeWorkspace}
-        {onBeforeDelete}
-        {onDeleted}
-        {onRenamed}
-        {onError}
-      />
-    </div>
-    <button
-      class="sidebar-resizer"
-      onpointerdown={beginResize}
-      aria-label="Resize sidebar"
-      title="Drag to resize"
-    ></button>
-  </aside>
-{/if}
+<aside
+  class="sidebar"
+  style:width={`${dragWidth ?? $sidebarState.width}px`}
+  aria-label="Sidebar"
+  hidden={!$sidebarState.visible}
+>
+  <div class:hidden={$sidebarState.activeView !== 'explorer'} class="sidebar-view">
+    <Explorer
+      activePath={$activeTab?.path ?? null}
+      {onOpenFile}
+      {onChangeWorkspace}
+      {onBeforeDelete}
+      {onDeleted}
+      {onRenamed}
+      {onError}
+    />
+  </div>
+  <button
+    class="sidebar-resizer"
+    onpointerdown={beginResize}
+    aria-label="Resize sidebar"
+    title="Drag to resize"
+  ></button>
+</aside>

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorApi } from './editorTypes';
 import Editor from './Editor.svelte';
 import { findTableContext } from './extensions/table';
+import { WORKSPACE_IMAGE_DRAG_TYPE } from '../sidebar/dragTypes';
 
 describe('Editor', () => {
   const readText = vi.fn();
@@ -18,7 +19,7 @@ describe('Editor', () => {
     writeText.mockResolvedValue(undefined);
   });
 
-  async function mountEditor(onImagePaste = vi.fn()) {
+  async function mountEditor(onImagePaste = vi.fn(), onWorkspaceImageDrop = vi.fn()) {
     let api: EditorApi | undefined;
     const onTransaction = vi.fn();
     const view = render(Editor, {
@@ -27,9 +28,10 @@ describe('Editor', () => {
       },
       onTransaction,
       onImagePaste,
+      onWorkspaceImageDrop,
     });
     await waitFor(() => expect(api).toBeDefined());
-    return { ...view, api: api!, onTransaction, onImagePaste };
+    return { ...view, api: api!, onTransaction, onImagePaste, onWorkspaceImageDrop };
   }
 
   it('creates, serializes, restores, focuses, and edits Markdown state', async () => {
@@ -180,6 +182,113 @@ describe('Editor', () => {
     });
     editor.dispatchEvent(textPaste);
     expect(textPaste.defaultPrevented).toBe(true);
+  });
+
+  it('drops workspace images at the pointer position', async () => {
+    const onWorkspaceImageDrop = vi.fn().mockResolvedValue(undefined);
+    const { api, container } = await mountEditor(vi.fn(), onWorkspaceImageDrop);
+    api.setState(api.createState('Alpha Beta'));
+    const editor = container.querySelector('.ProseMirror')!;
+    const paragraph = editor.querySelector('p')!;
+    const text = paragraph.firstChild!;
+    const originalCaret = document.caretPositionFromPoint;
+    const originalElement = document.elementFromPoint;
+    Object.defineProperty(document, 'caretPositionFromPoint', {
+      configurable: true,
+      value: () => ({ offsetNode: text, offset: 6 }),
+    });
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: () => paragraph,
+    });
+    const transfer = {
+      types: [WORKSPACE_IMAGE_DRAG_TYPE],
+      getData: vi.fn(() => '/work/a.png'),
+      dropEffect: 'none',
+    };
+
+    try {
+      const dragOver = new Event('dragover', { bubbles: true, cancelable: true });
+      Object.defineProperty(dragOver, 'dataTransfer', { value: transfer });
+      paragraph.dispatchEvent(dragOver);
+      expect(dragOver.defaultPrevented).toBe(true);
+      expect(transfer.dropEffect).toBe('copy');
+
+      const drop = new MouseEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 24,
+        clientY: 32,
+      });
+      Object.defineProperty(drop, 'dataTransfer', { value: transfer });
+      paragraph.dispatchEvent(drop);
+      await waitFor(() =>
+        expect(onWorkspaceImageDrop).toHaveBeenCalledWith('/work/a.png', {
+          anchor: 7,
+          head: 7,
+        }),
+      );
+      expect(drop.defaultPrevented).toBe(true);
+
+      Object.defineProperty(document, 'caretPositionFromPoint', {
+        configurable: true,
+        value: () => null,
+      });
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: () => null,
+      });
+      const noPosition = new MouseEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 24,
+        clientY: 32,
+      });
+      Object.defineProperty(noPosition, 'dataTransfer', { value: transfer });
+      paragraph.dispatchEvent(noPosition);
+      expect(onWorkspaceImageDrop).toHaveBeenCalledTimes(1);
+
+      const unrelated = new MouseEvent('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(unrelated, 'dataTransfer', {
+        value: { types: ['text/plain'], getData: vi.fn(() => 'ignored') },
+      });
+      paragraph.dispatchEvent(unrelated);
+      expect(onWorkspaceImageDrop).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalCaret) {
+        Object.defineProperty(document, 'caretPositionFromPoint', {
+          configurable: true,
+          value: originalCaret,
+        });
+      } else Reflect.deleteProperty(document, 'caretPositionFromPoint');
+      if (originalElement) {
+        Object.defineProperty(document, 'elementFromPoint', {
+          configurable: true,
+          value: originalElement,
+        });
+      } else Reflect.deleteProperty(document, 'elementFromPoint');
+    }
+  });
+
+  it('ignores workspace image drops inside CodeMirror', async () => {
+    const onWorkspaceImageDrop = vi.fn().mockResolvedValue(undefined);
+    const { api, container } = await mountEditor(vi.fn(), onWorkspaceImageDrop);
+    api.setState(api.createState('```js\nconst x = 1;\n```'));
+    const codeMirror = await waitFor(() => {
+      const element = container.querySelector('.cm-editor');
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const transfer = {
+      types: [WORKSPACE_IMAGE_DRAG_TYPE],
+      getData: vi.fn(() => '/work/a.png'),
+      dropEffect: 'copy',
+    };
+
+    await fireEvent.dragOver(codeMirror, { dataTransfer: transfer });
+    expect(transfer.dropEffect).toBe('none');
+    await fireEvent.drop(codeMirror, { dataTransfer: transfer });
+    expect(onWorkspaceImageDrop).not.toHaveBeenCalled();
   });
 
   it('opens image focus, zooms, resets, and closes preview', async () => {

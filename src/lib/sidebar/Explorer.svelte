@@ -1,6 +1,7 @@
 <script lang="ts">
   import FileTree from './FileTree.svelte';
   import SidebarContextMenu, { type SidebarContextMenuItem } from './SidebarContextMenu.svelte';
+  import { WORKSPACE_ENTRY_DRAG_TYPE, WORKSPACE_IMAGE_DRAG_TYPE } from './dragTypes';
   import { dialogService } from '../dialogs/dialogStore';
   import { sidebarState, workspacePickerRequest, workspaceRefreshRequest } from './sidebarStore';
   import {
@@ -23,7 +24,7 @@
     onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
-    onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => void;
+    onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => Promise<void>;
     onError: (message: string) => void;
   };
 
@@ -325,7 +326,7 @@
       );
       for (const move of result.moved) {
         applyTreeMove(move.path, move.newPath, destination);
-        onRenamed(move.path, move.newPath, move.isDirectory);
+        await onRenamed(move.path, move.newPath, move.isDirectory);
       }
       rewriteSelectionAfterMoves(result.moved);
       selectedDirectory = destination;
@@ -340,8 +341,11 @@
     dropTargetPath = null;
     contextMenu = null;
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('application/x-hypermd-workspace-entry', node.path);
+      event.dataTransfer.effectAllowed = node.type === 'image' ? 'copyMove' : 'move';
+      event.dataTransfer.setData(WORKSPACE_ENTRY_DRAG_TYPE, node.path);
+      if (node.type === 'image') {
+        event.dataTransfer.setData(WORKSPACE_IMAGE_DRAG_TYPE, node.path);
+      }
     }
   }
 
@@ -483,7 +487,7 @@
       applyTreeMove(oldPath, newPath, parentPath(newPath));
       rewriteSelectionAfterMoves([move]);
       selectedDirectory = node.isDirectory ? newPath : parentPath(newPath);
-      onRenamed(oldPath, newPath, node.isDirectory);
+      await onRenamed(oldPath, newPath, node.isDirectory);
     });
   }
 
@@ -660,6 +664,12 @@
     if (!request || request.id <= handledRefreshRequest) return;
     handledRefreshRequest = request.id;
     void refreshDirectory(request.path);
+  });
+
+  $effect(() => {
+    if ($sidebarState.visible) return;
+    contextMenu = null;
+    endDrag();
   });
 
   $effect(() => {

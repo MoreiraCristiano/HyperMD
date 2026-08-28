@@ -9,7 +9,7 @@ import {
   type NodeViewRendererProps,
 } from '@tiptap/core';
 import { Table, TableCell, TableHeader, TableRow, updateColumns } from '@tiptap/extension-table';
-import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Fragment, type Node as ProseMirrorNode, type ResolvedPos } from '@tiptap/pm/model';
 import { Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { TableMap, addRowAfter as addProseMirrorRowAfter } from '@tiptap/pm/tables';
 import type { EditorView, NodeView, ViewMutationRecord } from '@tiptap/pm/view';
@@ -285,6 +285,37 @@ export function findTableContext(state: EditorState): TableContext | null {
   };
 }
 
+function cellContentRangeAt(position: ResolvedPos): {
+  cellPos: number;
+  from: number;
+  to: number;
+} | null {
+  for (let depth = position.depth; depth > 0; depth -= 1) {
+    const role = position.node(depth).type.spec.tableRole;
+    if (role !== 'cell' && role !== 'header_cell') continue;
+    return {
+      cellPos: position.before(depth),
+      from: position.start(depth),
+      to: position.end(depth),
+    };
+  }
+  return null;
+}
+
+function selectCurrentCellContent(editor: Editor): boolean {
+  const { state } = editor;
+  const fromCell = cellContentRangeAt(state.selection.$from);
+  const toCell = cellContentRangeAt(state.selection.$to);
+  if (!fromCell || !toCell || fromCell.cellPos !== toCell.cellPos) return false;
+
+  const selection = TextSelection.between(
+    state.doc.resolve(fromCell.from),
+    state.doc.resolve(fromCell.to),
+  );
+  editor.view.dispatch(state.tr.setSelection(selection).scrollIntoView());
+  return true;
+}
+
 function setCellSelection(
   transaction: Transaction,
   tablePos: number,
@@ -471,6 +502,13 @@ type TableButton = {
   element: HTMLButtonElement;
 };
 
+type CellPointerSelection = {
+  pointerId: number;
+  anchor: number;
+  from: number;
+  to: number;
+};
+
 export class MarkdownTableView implements NodeView {
   node: ProseMirrorNode;
   dom: HTMLDivElement;
@@ -482,6 +520,7 @@ export class MarkdownTableView implements NodeView {
   private readonly outerView: EditorView;
   private readonly getPos: NodeViewRendererProps['getPos'];
   private readonly buttons = new Map<string, TableButton>();
+  private pointerSelection: CellPointerSelection | null = null;
   private active = false;
   private readonly activateView: (view: MarkdownTableView) => void;
   private readonly deactivateView: (view: MarkdownTableView, synchronize: boolean) => void;
@@ -524,7 +563,8 @@ export class MarkdownTableView implements NodeView {
     updateColumns(props.node, this.colgroup, this.table, 90);
     this.contentDOM = this.table.appendChild(document.createElement('tbody'));
 
-    this.table.addEventListener('pointerdown', this.activate);
+    this.table.addEventListener('pointerdown', this.handleCellPointerDown);
+    this.table.addEventListener('pointerup', this.activate);
     this.table.addEventListener('dragstart', this.preventDragStart);
     this.dom.addEventListener('keydown', this.handleKeydown);
     this.editor.on('selectionUpdate', this.handleSelectionUpdate);
@@ -652,6 +692,123 @@ export class MarkdownTableView implements NodeView {
 
   private activate = (): void => this.activateView(this);
 
+  private textBoundsForCell(target: EventTarget | null): { from: number; to: number } | null {
+    const element = target instanceof Element ? target : null;
+    const cell = element?.closest('td, th');
+    if (!(cell instanceof HTMLTableCellElement) || !this.table.contains(cell)) return null;
+
+    let cellContentPos: number;
+    try {
+      cellContentPos = this.outerView.posAtDOM(cell, 0);
+    } catch {
+      return null;
+    }
+    const cellPos = cellContentPos - 1;
+    const cellNode = this.outerView.state.doc.nodeAt(cellPos);
+    const role = cellNode?.type.spec.tableRole;
+    if (!cellNode || (role !== 'cell' && role !== 'header_cell')) return null;
+
+    let from: number | null = null;
+    let to: number | null = null;
+    cellNode.descendants((node, position) => {
+      if (!node.isTextblock) return true;
+      const textStart = cellPos + 2 + position;
+      if (from === null) from = textStart;
+      to = textStart + node.content.size;
+      return false;
+    });
+    return from === null || to === null ? null : { from, to };
+  }
+
+  private textPositionAtPointer(
+    event: PointerEvent,
+    bounds: { from: number; to: number },
+    bias: -1 | 1,
+    hitPosition?: number,
+  ): number {
+    const position =
+      hitPosition ??
+      this.outerView.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ??
+      (bias < 0 ? bounds.to : bounds.from);
+    if (position <= bounds.from) return bounds.from;
+    if (position >= bounds.to) return bounds.to;
+
+    const resolved = this.outerView.state.doc.resolve(position);
+    if (resolved.parent.inlineContent) return position;
+    const nearby =
+      Selection.findFrom(resolved, bias, true) ?? Selection.findFrom(resolved, -bias, true);
+    return nearby instanceof TextSelection && nearby.head >= bounds.from && nearby.head <= bounds.to
+      ? nearby.head
+      : bias < 0
+        ? bounds.from
+        : bounds.to;
+  }
+
+  private setPointerTextSelection(anchor: number, head: number): void {
+    const { state } = this.outerView;
+    const selection = TextSelection.create(state.doc, anchor, head);
+    if (!state.selection.eq(selection)) {
+      this.outerView.dispatch(state.tr.setSelection(selection).scrollIntoView());
+    }
+  }
+
+  private handleCellPointerDown = (event: PointerEvent): void => {
+    if (
+      event.button !== 0 ||
+      event.shiftKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.detail > 1
+    ) {
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('input, button, .cm-editor')) return;
+    const bounds = this.textBoundsForCell(target);
+    if (!bounds) return;
+
+    const anchor = this.textPositionAtPointer(event, bounds, 1);
+    this.pointerSelection = { pointerId: event.pointerId, anchor, ...bounds };
+    event.preventDefault();
+    event.stopPropagation();
+    document.addEventListener('pointermove', this.handleCellPointerMove, true);
+    document.addEventListener('pointerup', this.handleCellPointerUp, true);
+    document.addEventListener('pointercancel', this.handleCellPointerCancel, true);
+    this.setPointerTextSelection(anchor, anchor);
+    this.outerView.focus();
+  };
+
+  private handleCellPointerMove = (event: PointerEvent): void => {
+    const pointer = this.pointerSelection;
+    if (!pointer || event.pointerId !== pointer.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const hit = this.outerView.posAtCoords({ left: event.clientX, top: event.clientY });
+    const rawPosition = hit?.pos ?? pointer.anchor;
+    const bias: -1 | 1 = rawPosition < pointer.anchor ? -1 : 1;
+    const head = this.textPositionAtPointer(event, pointer, bias, rawPosition);
+    this.setPointerTextSelection(pointer.anchor, head);
+  };
+
+  private finishPointerSelection(): void {
+    this.pointerSelection = null;
+    document.removeEventListener('pointermove', this.handleCellPointerMove, true);
+    document.removeEventListener('pointerup', this.handleCellPointerUp, true);
+    document.removeEventListener('pointercancel', this.handleCellPointerCancel, true);
+  }
+
+  private handleCellPointerUp = (event: PointerEvent): void => {
+    if (!this.pointerSelection || event.pointerId !== this.pointerSelection.pointerId) return;
+    this.handleCellPointerMove(event);
+    this.finishPointerSelection();
+    this.activateView(this);
+  };
+
+  private handleCellPointerCancel = (event: PointerEvent): void => {
+    if (!this.pointerSelection || event.pointerId !== this.pointerSelection.pointerId) return;
+    this.finishPointerSelection();
+  };
+
   private preventDragStart = (event: DragEvent): void => {
     event.preventDefault();
     event.stopPropagation();
@@ -755,7 +912,9 @@ export class MarkdownTableView implements NodeView {
   }
 
   destroy(): void {
-    this.table.removeEventListener('pointerdown', this.activate);
+    this.finishPointerSelection();
+    this.table.removeEventListener('pointerdown', this.handleCellPointerDown);
+    this.table.removeEventListener('pointerup', this.activate);
     this.table.removeEventListener('dragstart', this.preventDragStart);
     this.dom.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('pointerdown', this.handleDocumentPointerDown, true);
@@ -849,6 +1008,7 @@ export function createMarkdownTableExtensions(): Extensions {
     },
     addKeyboardShortcuts() {
       return {
+        'Mod-a': () => selectCurrentCellContent(this.editor),
         Enter: () => handleTableEnter(this.editor),
         'Shift-Tab': () => {
           if (!findTableContext(this.editor.state)) return false;

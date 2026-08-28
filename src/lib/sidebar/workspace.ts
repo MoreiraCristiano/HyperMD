@@ -119,6 +119,18 @@ export async function readWorkspaceDirectory(root: string, path: string): Promis
     .sort(compareNodes);
 }
 
+export async function listWorkspaceMarkdownFiles(
+  root: string,
+  directory = root,
+): Promise<string[]> {
+  const files: string[] = [];
+  for (const node of await readWorkspaceDirectory(root, directory)) {
+    if (node.isDirectory) files.push(...(await listWorkspaceMarkdownFiles(root, node.path)));
+    else if (node.type === 'markdown') files.push(node.path);
+  }
+  return files;
+}
+
 export async function createMarkdownFile(
   root: string,
   parent: string,

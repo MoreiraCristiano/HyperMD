@@ -12,6 +12,7 @@ import TabBar from './tabs/TabBar.svelte';
 import TabItem from './tabs/TabItem.svelte';
 import { tabsState, type EditorTab } from './tabs/tabStore';
 import { documentManager } from './editor/documentManager';
+import { tauriMocks } from '../test/tauriMocks';
 
 const settingsTab = (overrides: Partial<EditorTab> = {}): EditorTab =>
   ({
@@ -220,13 +221,55 @@ describe('navigation components', () => {
       onError: vi.fn(),
     };
     render(Sidebar, props);
+    const sidebar = screen.getByLabelText('Sidebar');
     const resizer = screen.getByRole('button', { name: 'Resize sidebar' });
     await fireEvent.pointerDown(resizer, { clientX: 100 });
     await fireEvent.pointerMove(window, { clientX: 200 });
     await fireEvent.pointerUp(window);
     expect(get(sidebarState).width).toBe(340);
     sidebarActions.toggle();
-    await waitFor(() => expect(screen.queryByLabelText('Sidebar')).not.toBeInTheDocument());
+    await waitFor(() => expect(sidebar).not.toBeVisible());
+    expect(sidebar).toHaveAttribute('hidden');
+  });
+
+  it('preserves expanded folders while the sidebar is hidden', async () => {
+    sidebarState.update((state) => ({
+      ...state,
+      workspacePath: '/work',
+      workspaceName: 'Work',
+    }));
+    tauriMocks.readDir.mockImplementation(async (path: string) =>
+      path === '/work/docs'
+        ? [{ name: 'child.md', isFile: true, isDirectory: false, isSymlink: false }]
+        : [{ name: 'docs', isFile: false, isDirectory: true, isSymlink: false }],
+    );
+    const props = {
+      onOpenFile: vi.fn().mockResolvedValue(true),
+      onChangeWorkspace: vi.fn().mockResolvedValue(true),
+      onBeforeDelete: vi.fn().mockResolvedValue(true),
+      onDeleted: vi.fn(),
+      onRenamed: vi.fn().mockResolvedValue(undefined),
+      onError: vi.fn(),
+    };
+    render(Sidebar, props);
+    const sidebar = screen.getByLabelText('Sidebar');
+    const folder = await screen.findByRole('treeitem', { name: /docs/ });
+    await fireEvent.click(folder);
+    const child = await screen.findByRole('treeitem', { name: /child.md/ });
+    const reads = tauriMocks.readDir.mock.calls.length;
+    await fireEvent.contextMenu(folder);
+    expect(await screen.findByRole('menu')).toBeVisible();
+
+    sidebarActions.toggle();
+    await waitFor(() => expect(sidebar).not.toBeVisible());
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    expect(child).not.toBeVisible();
+    sidebarActions.toggle();
+    await waitFor(() => expect(sidebar).toBeVisible());
+
+    expect(folder).toHaveAttribute('aria-expanded', 'true');
+    expect(child).toBeVisible();
+    expect(tauriMocks.readDir).toHaveBeenCalledTimes(reads);
   });
 
   it('renders every tab kind and handles auxiliary, keyboard, drag, and close errors', async () => {

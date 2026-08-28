@@ -145,6 +145,150 @@ describe('editor extensions', () => {
     expect(plain.getHTML()).toBe(before);
   });
 
+  it('nests and lifts items across bullet, ordered, and task list boundaries', () => {
+    const paragraph = (text: string) => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+    const item = (type: 'listItem' | 'taskItem', text: string, checked = false) => ({
+      type,
+      ...(type === 'taskItem' ? { attrs: { checked } } : {}),
+      content: [paragraph(text)],
+    });
+    const list = (
+      type: 'bulletList' | 'orderedList' | 'taskList',
+      content: ReturnType<typeof item>[],
+      start = 1,
+    ) => ({
+      type,
+      ...(type === 'orderedList' ? { attrs: { start, type: null } } : {}),
+      content,
+    });
+    const samples = [
+      {
+        parentList: 'bulletList',
+        parentItem: 'listItem',
+        childList: 'taskList',
+        childItem: 'taskItem',
+      },
+      {
+        parentList: 'orderedList',
+        parentItem: 'listItem',
+        childList: 'taskList',
+        childItem: 'taskItem',
+      },
+      {
+        parentList: 'taskList',
+        parentItem: 'taskItem',
+        childList: 'bulletList',
+        childItem: 'listItem',
+      },
+      {
+        parentList: 'taskList',
+        parentItem: 'taskItem',
+        childList: 'orderedList',
+        childItem: 'listItem',
+      },
+    ] as const;
+
+    for (const [index, sample] of samples.entries()) {
+      const instance = editor('', [
+        StarterKit.configure({ listItem: false, orderedList: false }),
+        BlockListItem,
+        BlockOrderedList,
+        BlockTaskList,
+        BlockTaskItem,
+        ListKeyboard,
+      ]);
+      instance.commands.setContent({
+        type: 'doc',
+        content: [
+          list(sample.parentList, [item(sample.parentItem, `parent ${index}`, true)], 3),
+          list(
+            sample.childList,
+            [
+              item(sample.childItem, `child ${index}`, true),
+              item(sample.childItem, `sibling ${index}`),
+            ],
+            4,
+          ),
+        ],
+      });
+      const original = instance.getJSON();
+
+      selectTextEnd(instance, `child ${index}`);
+      fireEvent.keyDown(instance.view.dom, { key: 'Tab' });
+      const nestedList = instance.state.doc.firstChild?.firstChild?.lastChild;
+      expect(nestedList?.type.name).toBe(sample.childList);
+      expect(nestedList?.firstChild?.type.name).toBe(sample.childItem);
+      expect(nestedList?.firstChild?.attrs.checked).toBe(
+        sample.childItem === 'taskItem' ? true : undefined,
+      );
+      expect(instance.state.doc.child(1).attrs.start).toBe(
+        sample.childList === 'orderedList' ? 5 : undefined,
+      );
+
+      fireEvent.keyDown(instance.view.dom, { key: 'Tab', shiftKey: true });
+      expect(instance.getJSON()).toEqual(original);
+      expect(instance.state.selection.$from.parent.textContent).toBe(`child ${index}`);
+    }
+
+    const complex = editor('', [
+      StarterKit.configure({ listItem: false, orderedList: false }),
+      BlockListItem,
+      BlockOrderedList,
+      BlockTaskList,
+      BlockTaskItem,
+      ListKeyboard,
+    ]);
+    complex.commands.setContent({
+      type: 'doc',
+      content: [
+        {
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: true },
+              content: [
+                paragraph('task parent'),
+                {
+                  type: 'orderedList',
+                  attrs: { start: 4, type: null },
+                  content: [
+                    item('listItem', 'before'),
+                    {
+                      type: 'listItem',
+                      content: [
+                        paragraph('selected'),
+                        list('bulletList', [item('listItem', 'existing child')]),
+                      ],
+                    },
+                    item('listItem', 'after'),
+                  ],
+                },
+              ],
+            },
+            item('taskItem', 'outer sibling'),
+          ],
+        },
+      ],
+    });
+
+    selectTextEnd(complex, 'selected');
+    fireEvent.keyDown(complex.view.dom, { key: 'Tab', shiftKey: true });
+    expect(complex.state.doc.childCount).toBeGreaterThanOrEqual(3);
+    expect(complex.state.doc.child(0).type.name).toBe('taskList');
+    expect(complex.state.doc.child(0).textContent).toBe('task parentbefore');
+    expect(complex.state.doc.child(1).type.name).toBe('orderedList');
+    expect(complex.state.doc.child(1).attrs.start).toBe(5);
+    expect(complex.state.doc.child(1).textContent).toBe('selectedexisting childafter');
+    expect(complex.state.doc.child(1).firstChild?.child(1).type.name).toBe('bulletList');
+    expect(complex.state.doc.child(1).firstChild?.child(2).type.name).toBe('orderedList');
+    expect(complex.state.doc.child(1).firstChild?.child(2).attrs.start).toBe(6);
+    expect(complex.state.doc.child(2).textContent).toBe('outer sibling');
+  });
+
   it('creates fenced code blocks as the only content of nested list items', () => {
     const enter = editor('<ul><li><p>outer</p><ul><li><p>```js</p></li></ul></li></ul>', [
       StarterKit.configure({ codeBlock: false, listItem: false }),

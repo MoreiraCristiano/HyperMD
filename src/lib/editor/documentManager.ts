@@ -1,11 +1,17 @@
 import { EditorState } from '@tiptap/pm/state';
+import { dirname, normalize } from '@tauri-apps/api/path';
 import { get } from 'svelte/store';
 import { chooseSavePath, fileName, readMarkdown, writeMarkdown } from '../files';
 import { dialogService } from '../dialogs/dialogStore';
 import { isImagePath } from '../images/imageTypes';
-import { validateWorkspaceImagePath } from '../images/localImage';
+import { relativeMarkdownImagePath, validateWorkspaceImagePath } from '../images/localImage';
 import { sidebarActions, sidebarState } from '../sidebar/sidebarStore';
-import { chooseWorkspace, pathName } from '../sidebar/workspace';
+import {
+  chooseWorkspace,
+  isInsideWorkspace,
+  listWorkspaceMarkdownFiles,
+  pathName,
+} from '../sidebar/workspace';
 import { settingsStore } from '../settings/settingsStore';
 import {
   isMarkdownTab,
@@ -16,6 +22,7 @@ import {
 } from '../tabs/tabStore';
 import type { EditorApi, EditorCommand, StoredSelection } from './editorTypes';
 import { saveClipboardImage } from './imageImport';
+import { rewriteImageReferences } from './imageReferences';
 
 type PersistedTab = {
   id: string;
@@ -496,6 +503,32 @@ export class DocumentManager {
     return true;
   }
 
+  async insertWorkspaceImage(path: string, selection: StoredSelection): Promise<boolean> {
+    if (!this.editor) return false;
+    const initial = get(tabsState);
+    const tabId = initial.activeId;
+    const initialTab = initial.tabs.find((tab) => tab.id === tabId);
+    if (!tabId || !initialTab || !isMarkdownTab(initialTab)) return false;
+
+    const workspaceRoot = get(sidebarState).workspacePath;
+    if (!workspaceRoot) return false;
+    const imagePath = await validateWorkspaceImagePath(path);
+    const documentDirectory = initialTab.path ? await dirname(initialTab.path) : workspaceRoot;
+    const markdownSrc = relativeMarkdownImagePath(await normalize(documentDirectory), imagePath);
+    const snapshot = get(tabsState);
+    const tab = snapshot.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab || !isMarkdownTab(tab)) return false;
+
+    if (snapshot.activeId === tabId) {
+      return this.editor.insertImage(markdownSrc, '', selection);
+    }
+
+    tab.state = this.editor.insertImageIntoState(tab.state, markdownSrc, '', selection);
+    tab.dirty = !tab.state.doc.eq(tab.savedDoc);
+    this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
+    return true;
+  }
+
   markMissing(path: string, isDirectory: boolean): void {
     const snapshot = get(tabsState);
     let changed = false;
@@ -509,7 +542,7 @@ export class DocumentManager {
     if (changed) this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
   }
 
-  renamePath(oldPath: string, newPath: string, isDirectory: boolean): void {
+  async renamePath(oldPath: string, newPath: string, isDirectory: boolean): Promise<void> {
     const snapshot = get(tabsState);
     let changed = false;
     for (const tab of snapshot.tabs) {
@@ -522,6 +555,135 @@ export class DocumentManager {
       changed = true;
     }
     if (changed) this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
+    const workspaceRoot = get(sidebarState).workspacePath;
+    if (
+      workspaceRoot &&
+      !isDirectory &&
+      isImagePath(oldPath) &&
+      isImagePath(newPath) &&
+      isInsideWorkspace(workspaceRoot, oldPath) &&
+      isInsideWorkspace(workspaceRoot, newPath)
+    ) {
+      await this.updateWorkspaceImageReferences(workspaceRoot, oldPath, newPath);
+    }
+  }
+
+  private async updateWorkspaceImageReferences(
+    workspaceRoot: string,
+    oldImagePath: string,
+    newImagePath: string,
+  ): Promise<void> {
+    if (!this.editor) return;
+    const markdownPaths = await listWorkspaceMarkdownFiles(workspaceRoot);
+    for (const documentPath of markdownPaths) {
+      const openTab = get(tabsState).tabs.find(
+        (tab) =>
+          isMarkdownTab(tab) &&
+          tab.path !== null &&
+          comparablePath(tab.path) === comparablePath(documentPath),
+      );
+      if (openTab && isMarkdownTab(openTab)) {
+        await this.updateOpenImageReferences(openTab.id, documentPath, oldImagePath, newImagePath);
+      } else {
+        const state = this.editor.createState(await readMarkdown(documentPath));
+        const rewritten = await rewriteImageReferences(
+          state,
+          documentPath,
+          oldImagePath,
+          newImagePath,
+        );
+        if (rewritten.changed) {
+          await writeMarkdown(documentPath, this.editor.serializeState(rewritten.state));
+        }
+      }
+    }
+  }
+
+  private async updateOpenImageReferences(
+    tabId: string,
+    documentPath: string,
+    oldImagePath: string,
+    newImagePath: string,
+  ): Promise<void> {
+    if (!this.editor) return;
+
+    while (true) {
+      const snapshot = get(tabsState);
+      const tab = snapshot.tabs.find((candidate) => candidate.id === tabId);
+      if (
+        !tab ||
+        !isMarkdownTab(tab) ||
+        !tab.path ||
+        comparablePath(tab.path) !== comparablePath(documentPath)
+      )
+        return;
+      const originalState = tab.state;
+      const rewritten = await rewriteImageReferences(
+        originalState,
+        documentPath,
+        oldImagePath,
+        newImagePath,
+      );
+      const latest = get(tabsState);
+      const latestTab = latest.tabs.find((candidate) => candidate.id === tabId);
+      if (
+        !latestTab ||
+        !isMarkdownTab(latestTab) ||
+        !latestTab.path ||
+        comparablePath(latestTab.path) !== comparablePath(documentPath)
+      )
+        return;
+      if (latestTab.state !== originalState) continue;
+      if (rewritten.changed) {
+        latestTab.state = rewritten.state;
+        latestTab.dirty = !latestTab.state.doc.eq(latestTab.savedDoc);
+        this.publish({ ...latest, tabs: [...latest.tabs] });
+        if (latest.activeId === tabId) this.editor.setState(rewritten.state);
+        this.scheduleAutoSave(latestTab);
+      }
+      break;
+    }
+
+    while (true) {
+      const snapshot = get(tabsState);
+      const tab = snapshot.tabs.find((candidate) => candidate.id === tabId);
+      if (
+        !tab ||
+        !isMarkdownTab(tab) ||
+        !tab.path ||
+        comparablePath(tab.path) !== comparablePath(documentPath)
+      )
+        return;
+      const originalSavedDoc = tab.savedDoc;
+      const savedState = EditorState.create({
+        schema: tab.state.schema,
+        doc: originalSavedDoc,
+        plugins: tab.state.plugins,
+      });
+      const rewritten = await rewriteImageReferences(
+        savedState,
+        documentPath,
+        oldImagePath,
+        newImagePath,
+      );
+      if (!rewritten.changed) return;
+      await writeMarkdown(documentPath, this.editor.serializeState(rewritten.state));
+      const latest = get(tabsState);
+      const latestTab = latest.tabs.find((candidate) => candidate.id === tabId);
+      if (
+        !latestTab ||
+        !isMarkdownTab(latestTab) ||
+        !latestTab.path ||
+        comparablePath(latestTab.path) !== comparablePath(documentPath)
+      )
+        return;
+      if (latestTab.savedDoc !== originalSavedDoc) continue;
+      latestTab.savedDoc = rewritten.state.doc;
+      latestTab.dirty = !latestTab.state.doc.eq(latestTab.savedDoc);
+      this.publish({ ...latest, tabs: [...latest.tabs] });
+      this.scheduleAutoSave(latestTab);
+      return;
+    }
   }
 
   private async confirmDirty(tab: MarkdownTab): Promise<DirtyAction> {

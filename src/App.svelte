@@ -99,6 +99,23 @@
     }
   }
 
+  async function dropWorkspaceImage(path: string, selection: StoredSelection): Promise<void> {
+    error = null;
+    try {
+      await documentManager.insertWorkspaceImage(path, selection);
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : 'Could not insert the image.');
+    }
+  }
+
+  async function renameWorkspacePath(
+    oldPath: string,
+    newPath: string,
+    isDirectory: boolean,
+  ): Promise<void> {
+    await documentManager.renamePath(oldPath, newPath, isDirectory);
+  }
+
   function commandEnabled(id: AppCommandId): boolean {
     const command = appCommands.find((candidate) => candidate.id === id);
     const tab = get(activeTab);
@@ -239,8 +256,7 @@
         onChangeWorkspace={changeWorkspace}
         onBeforeDelete={() => Promise.resolve(true)}
         onDeleted={(path, isDirectory) => documentManager.markMissing(path, isDirectory)}
-        onRenamed={(oldPath, newPath, isDirectory) =>
-          documentManager.renamePath(oldPath, newPath, isDirectory)}
+        onRenamed={renameWorkspacePath}
         onError={showError}
       />
     </div>
@@ -255,6 +271,7 @@
               onReady={editorReady}
               onTransaction={(state, changed) => documentManager.handleTransaction(state, changed)}
               onImagePaste={pasteImage}
+              onWorkspaceImageDrop={dropWorkspaceImage}
             />
           </section>
         </div>

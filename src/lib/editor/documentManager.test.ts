@@ -1,5 +1,7 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import type { EditorState } from '@tiptap/pm/state';
+import { Editor as TiptapEditor } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import { EditorState } from '@tiptap/pm/state';
 import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriMocks } from '../../test/tauriMocks';
@@ -9,6 +11,8 @@ import { settingsActions } from '../settings/settingsStore';
 import { tabsState, type EditorTab } from '../tabs/tabStore';
 import type { EditorApi } from './editorTypes';
 import { DocumentManager } from './documentManager';
+import { MarkdownImage } from './extensions/image';
+import { MarkdownSupport } from './markdown';
 
 function fakeState(content: string): EditorState {
   const doc = {
@@ -44,6 +48,27 @@ function fakeEditor() {
     openFind: vi.fn(),
   };
   return api;
+}
+
+function markdownEditor() {
+  const instance = new TiptapEditor({
+    element: document.createElement('div'),
+    extensions: [StarterKit, MarkdownImage, MarkdownSupport],
+    content: '',
+    contentType: 'markdown',
+  });
+  const editor = fakeEditor();
+  vi.mocked(editor.createState).mockImplementation((markdown: string) => {
+    const doc = instance.schema.nodeFromJSON(instance.markdown!.parse(markdown));
+    return EditorState.create({ schema: instance.schema, doc, plugins: instance.state.plugins });
+  });
+  vi.mocked(editor.serializeState).mockImplementation((state: EditorState) =>
+    instance.markdown!.serialize(state.doc.toJSON()),
+  );
+  vi.mocked(editor.serializeNode).mockImplementation((doc: ProseMirrorNode) =>
+    instance.markdown!.serialize(doc.toJSON()),
+  );
+  return { editor, instance };
 }
 
 describe('DocumentManager', () => {
@@ -174,8 +199,59 @@ describe('DocumentManager', () => {
     expect(editor.openFind).toHaveBeenCalled();
     manager.markMissing('/work/docs', true);
     expect(get(tabsState).tabs[0].missing).toBe(true);
-    manager.renamePath('/work/docs', '/work/new', true);
+    await manager.renamePath('/work/docs', '/work/new', true);
     expect(get(tabsState).tabs[0]).toMatchObject({ path: '/work/new/a.md', missing: false });
+    manager.dispose();
+  });
+
+  it('updates moved image references on disk without saving unrelated dirty edits', async () => {
+    tauriMocks.readDir.mockResolvedValue([
+      { name: 'open.md', isFile: true, isDirectory: false, isSymlink: false },
+      { name: 'closed.md', isFile: true, isDirectory: false, isSymlink: false },
+      { name: 'untouched.md', isFile: true, isDirectory: false, isSymlink: false },
+      { name: 'moved.png', isFile: true, isDirectory: false, isSymlink: false },
+    ]);
+    tauriMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path === '/work/closed.md') return 'Closed ![](./images/moved.png)';
+      if (path === '/work/untouched.md') return 'Keep ![](./other/moved.png)';
+      throw new Error(`Unexpected read: ${path}`);
+    });
+    const { editor, instance } = markdownEditor();
+    const manager = new DocumentManager();
+    manager.attachEditor(editor);
+    const tab = get(tabsState).tabs[0];
+    if (tab.type !== 'markdown') throw new Error('Expected Markdown tab.');
+    tab.path = '/work/open.md';
+    const saved = editor.createState('Saved ![](./images/moved.png)');
+    const current = editor.createState('Saved ![](./images/moved.png)\n\nUnsaved edit');
+    tab.savedDoc = saved.doc;
+    tab.state = current;
+    tab.dirty = true;
+    editor.setState(current);
+
+    await manager.renamePath('/work/images/moved.png', '/work/archive/moved.png', false);
+
+    const updated = get(tabsState).tabs[0];
+    if (updated.type !== 'markdown') throw new Error('Expected Markdown tab.');
+    expect(editor.serializeState(updated.state)).toContain('./archive/moved.png');
+    expect(editor.serializeState(updated.state)).toContain('Unsaved edit');
+    expect(editor.serializeNode(updated.savedDoc)).toContain('./archive/moved.png');
+    expect(editor.serializeNode(updated.savedDoc)).not.toContain('Unsaved edit');
+    expect(updated.dirty).toBe(true);
+    expect(editor.setState).toHaveBeenLastCalledWith(updated.state);
+    expect(tauriMocks.writeTextFile).toHaveBeenCalledWith(
+      '/work/open.md',
+      expect.stringContaining('./archive/moved.png'),
+    );
+    expect(tauriMocks.writeTextFile).toHaveBeenCalledWith(
+      '/work/closed.md',
+      expect.stringContaining('./archive/moved.png'),
+    );
+    expect(tauriMocks.writeTextFile).not.toHaveBeenCalledWith(
+      '/work/untouched.md',
+      expect.any(String),
+    );
+    instance.destroy();
     manager.dispose();
   });
 
@@ -282,6 +358,52 @@ describe('DocumentManager', () => {
       anchor: 1,
       head: 1,
     });
+    manager.dispose();
+  });
+
+  it('inserts workspace images with a relative path and empty alt text', async () => {
+    const manager = new DocumentManager();
+    const editor = fakeEditor();
+    manager.attachEditor(editor);
+    const tab = get(tabsState).tabs[0];
+    if (tab.type === 'markdown') tab.path = '/work/docs/note.md';
+    const selection = { anchor: 4, head: 4 };
+
+    await expect(manager.insertWorkspaceImage('/work/images/a.png', selection)).resolves.toBe(true);
+    expect(editor.insertImage).toHaveBeenCalledWith('../images/a.png', '', selection);
+
+    if (tab.type === 'markdown') tab.path = null;
+    await manager.insertWorkspaceImage('/work/a.png', selection);
+    expect(editor.insertImage).toHaveBeenLastCalledWith('./a.png', '', selection);
+    manager.dispose();
+  });
+
+  it('finishes an image drop in its original tab after an asynchronous tab change', async () => {
+    let resolveStat!: (value: { isFile: boolean }) => void;
+    tauriMocks.stat.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStat = resolve;
+      }),
+    );
+    const manager = new DocumentManager();
+    const editor = fakeEditor();
+    manager.attachEditor(editor);
+    const original = get(tabsState).tabs[0];
+    if (original.type === 'markdown') original.path = '/work/docs/note.md';
+    const selection = { anchor: 2, head: 2 };
+
+    const insertion = manager.insertWorkspaceImage('/work/a.png', selection);
+    manager.newDocument();
+    resolveStat({ isFile: true });
+
+    await expect(insertion).resolves.toBe(true);
+    expect(editor.insertImage).not.toHaveBeenCalled();
+    expect(editor.insertImageIntoState).toHaveBeenCalledWith(
+      original.type === 'markdown' ? original.state : expect.anything(),
+      '../a.png',
+      '',
+      selection,
+    );
     manager.dispose();
   });
 

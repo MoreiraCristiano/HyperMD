@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { Editor } from '@tiptap/core';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import StarterKit from '@tiptap/starter-kit';
-import { TextSelection } from '@tiptap/pm/state';
-import { TableMap } from '@tiptap/pm/tables';
+import { AllSelection, TextSelection } from '@tiptap/pm/state';
+import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MarkdownSupport } from './markdown';
 import {
@@ -60,6 +61,7 @@ function tableText(editor: Editor): string[][] {
 afterEach(() => {
   while (editors.length) editors.pop()?.destroy();
   document.body.replaceChildren();
+  document.querySelector('[data-table-test-styles]')?.remove();
 });
 
 describe('Markdown table editing', () => {
@@ -278,6 +280,161 @@ describe('Markdown table editing', () => {
     expect(findTableContext(editor.state)).toMatchObject({ row: 0, column: 0 });
   });
 
+  it('keeps Mod+A selection inside the current table cell', () => {
+    const listEditor = createEditor(
+      ['| Items | Other |', '| --- | --- |', '| - one<br>- two | Keep |'].join('\n'),
+    );
+    selectCell(listEditor, 1, 0);
+    const table = listEditor.state.doc.firstChild!;
+    const relativeCellPos = TableMap.get(table).positionAt(1, 0, table);
+    const cellPos = 1 + relativeCellPos;
+    const cell = table.child(1).child(0);
+    const selectCellContent = () => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      listEditor.view.dom.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+
+    selectCellContent();
+    expect(listEditor.state.selection).toBeInstanceOf(TextSelection);
+    expect(listEditor.state.selection.from).toBeGreaterThan(cellPos);
+    expect(listEditor.state.selection.to).toBeLessThan(cellPos + cell.nodeSize);
+    expect(
+      listEditor.state.doc.textBetween(
+        listEditor.state.selection.from,
+        listEditor.state.selection.to,
+        '\n',
+      ),
+    ).toBe('one\ntwo');
+    const firstSelection = listEditor.state.selection.toJSON();
+    selectCellContent();
+    expect(listEditor.state.selection.toJSON()).toEqual(firstSelection);
+
+    selectCell(listEditor, 0, 0);
+    selectCellContent();
+    expect(
+      listEditor.state.doc.textBetween(
+        listEditor.state.selection.from,
+        listEditor.state.selection.to,
+        '\n',
+      ),
+    ).toBe('Items');
+
+    const replaceEditor = createEditor(markdown);
+    selectCell(replaceEditor, 1, 0);
+    replaceEditor.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    replaceEditor.commands.insertContent('Changed');
+    expect(replaceEditor.state.doc.firstChild?.type.name).toBe('table');
+    expect(tableText(replaceEditor)[1]).toEqual(['Changed', '10', 'A | B']);
+
+    const outsideEditor = createEditor(`Outside\n\n${markdown}`);
+    outsideEditor.commands.setTextSelection(1);
+    outsideEditor.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(outsideEditor.state.selection).toBeInstanceOf(AllSelection);
+  });
+
+  it('decorates structural cell selections without affecting text selections', () => {
+    const editor = createEditor(markdown);
+    const table = editor.state.doc.firstChild!;
+    const map = TableMap.get(table);
+    const firstCell = 1 + map.positionAt(1, 0, table);
+    const lastCell = 1 + map.positionAt(1, 2, table);
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        new CellSelection(editor.state.doc.resolve(firstCell), editor.state.doc.resolve(lastCell)),
+      ),
+    );
+    expect(editor.state.selection).toBeInstanceOf(CellSelection);
+    expect(document.querySelectorAll('.hypermd-table td.selectedCell')).toHaveLength(3);
+    expect(document.querySelectorAll('.hypermd-table th.selectedCell')).toHaveLength(0);
+
+    selectCell(editor, 1, 0);
+    expect(editor.state.selection).toBeInstanceOf(TextSelection);
+    expect(document.querySelectorAll('.hypermd-table .selectedCell')).toHaveLength(0);
+  });
+
+  it('places the caret in a clicked cell and confines pointer text selection to it', () => {
+    const editor = createEditor(markdown);
+    const table = editor.state.doc.firstChild!;
+    const map = TableMap.get(table);
+    const cellPos = 1 + map.positionAt(1, 0, table);
+    const nextCellPos = 1 + map.positionAt(1, 1, table);
+    const textFrom = cellPos + 2;
+    const textTo = textFrom + table.child(1).child(0).textContent.length;
+    const nextCellText = nextCellPos + 2;
+    const cell = document.querySelectorAll<HTMLTableCellElement>('.hypermd-table td')[0];
+    const wrapper = cell.closest('.hypermd-table-wrapper')!;
+    const posAtCoords = vi.spyOn(editor.view, 'posAtCoords');
+    const pointer = (type: string, pointerId: number) =>
+      new PointerEvent(type, {
+        pointerId,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        bubbles: true,
+        cancelable: true,
+      });
+
+    posAtCoords.mockReturnValue({ pos: textFrom + 1, inside: cellPos });
+    const clickDown = pointer('pointerdown', 1);
+    cell.dispatchEvent(clickDown);
+    document.dispatchEvent(pointer('pointerup', 1));
+
+    expect(clickDown.defaultPrevented).toBe(true);
+    expect(editor.state.selection).toBeInstanceOf(TextSelection);
+    expect(editor.state.selection).not.toBeInstanceOf(CellSelection);
+    expect(editor.state.selection.empty).toBe(true);
+    expect(editor.state.selection.anchor).toBe(textFrom + 1);
+    expect(wrapper).toHaveClass('active');
+    expect(cell).toHaveClass('hypermd-table-current-cell');
+
+    posAtCoords.mockReturnValueOnce({ pos: textFrom, inside: cellPos });
+    cell.dispatchEvent(pointer('pointerdown', 2));
+    posAtCoords.mockReturnValue({ pos: textTo, inside: cellPos });
+    document.dispatchEvent(pointer('pointermove', 2));
+    document.dispatchEvent(pointer('pointerup', 2));
+
+    expect(editor.state.selection).toBeInstanceOf(TextSelection);
+    expect(editor.state.selection.from).toBe(textFrom);
+    expect(editor.state.selection.to).toBe(textTo);
+    expect(
+      editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to),
+    ).toBe('Ana');
+    expect(document.querySelectorAll('.hypermd-table .selectedCell')).toHaveLength(0);
+
+    posAtCoords.mockReturnValueOnce({ pos: textFrom, inside: cellPos });
+    cell.dispatchEvent(pointer('pointerdown', 3));
+    posAtCoords.mockReturnValue({ pos: nextCellText, inside: nextCellPos });
+    document.dispatchEvent(pointer('pointermove', 3));
+    document.dispatchEvent(pointer('pointerup', 3));
+
+    expect(editor.state.selection.from).toBe(textFrom);
+    expect(editor.state.selection.to).toBe(textTo);
+    expect(
+      editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to),
+    ).toBe('Ana');
+  });
+
   it.each([
     ['bulletList', () => ({ command: 'toggleBulletList' as const, item: 'listItem' })],
     ['taskList', () => ({ command: 'toggleTaskList' as const, item: 'taskItem' })],
@@ -348,20 +505,38 @@ describe('Markdown table editing', () => {
   });
 
   it('activates a static table, operates the toolbar, and synchronizes on outside click', () => {
+    const styles = readFileSync('src/styles.css', 'utf8');
+    const toolbarRule = styles.match(/\.hypermd-table-toolbar\s*\{[^}]*\}/)?.[0];
+    const activeToolbarRule = styles.match(
+      /\.hypermd-table-wrapper\.active \.hypermd-table-toolbar\[data-has-cell\]\s*\{[^}]*\}/,
+    )?.[0];
+    expect(toolbarRule).toBeDefined();
+    expect(activeToolbarRule).toBeDefined();
+    const stylesheet = document.head.appendChild(document.createElement('style'));
+    stylesheet.dataset.tableTestStyles = '';
+    stylesheet.textContent = `${toolbarRule}\n${activeToolbarRule}`;
     const onTransaction = vi.fn();
     const editor = createEditor(markdown, onTransaction);
     const wrapper = document.querySelector<HTMLElement>('.hypermd-table-wrapper')!;
     const table = wrapper.querySelector('table')!;
+    const toolbar = wrapper.querySelector<HTMLElement>('.hypermd-table-toolbar')!;
     selectCell(editor, 1, 0);
 
+    expect(getComputedStyle(toolbar).display).toBe('none');
     table.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(wrapper).not.toHaveClass('active');
+    table.dispatchEvent(new Event('pointerup', { bubbles: true }));
     expect(wrapper).toHaveClass('active');
+    expect(getComputedStyle(toolbar)).toMatchObject({
+      display: 'flex',
+      position: 'absolute',
+    });
     expect(wrapper.querySelector('.hypermd-table-current-cell')).not.toBeNull();
     expect(
       wrapper.querySelector<HTMLButtonElement>('[aria-label="Remove row"]'),
     ).not.toBeDisabled();
 
-    table.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    table.dispatchEvent(new Event('pointerup', { bubbles: true }));
     const unrelatedKey = new KeyboardEvent('keydown', {
       key: 'ArrowDown',
       bubbles: true,
@@ -415,7 +590,7 @@ describe('Markdown table editing', () => {
     const wrapper = document.querySelector<HTMLElement>('.hypermd-table-wrapper')!;
     const table = wrapper.querySelector('table')!;
     selectCell(editor, 0, 0);
-    table.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    table.dispatchEvent(new Event('pointerup', { bubbles: true }));
 
     expect(wrapper.querySelector<HTMLButtonElement>('[aria-label="Remove row"]')).toBeDisabled();
     expect(wrapper.querySelector<HTMLButtonElement>('[aria-label="Move row up"]')).toBeDisabled();
@@ -449,9 +624,9 @@ describe('Markdown table editing', () => {
     const wrappers = [...document.querySelectorAll<HTMLElement>('.hypermd-table-wrapper')];
     expect(wrappers).toHaveLength(2);
 
-    wrappers[0].querySelector('table')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    wrappers[0].querySelector('table')!.dispatchEvent(new Event('pointerup', { bubbles: true }));
     expect(wrappers[0]).toHaveClass('active');
-    wrappers[1].querySelector('table')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    wrappers[1].querySelector('table')!.dispatchEvent(new Event('pointerup', { bubbles: true }));
     expect(wrappers[0]).not.toHaveClass('active');
     expect(wrappers[1]).toHaveClass('active');
   });
