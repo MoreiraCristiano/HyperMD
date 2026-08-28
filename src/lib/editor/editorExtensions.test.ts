@@ -143,6 +143,18 @@ describe('editor extensions', () => {
     const before = plain.getHTML();
     plain.commands.keyboardShortcut('Tab');
     expect(plain.getHTML()).toBe(before);
+
+    const rootList = editor('<ul><li><p>Only</p></li></ul>', [
+      StarterKit.configure({ listItem: false }),
+      BlockListItem,
+      ListKeyboard,
+    ]);
+    selectTextEnd(rootList, 'Only');
+    const rootBefore = rootList.getJSON();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    rootList.view.dom.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(rootList.getJSON()).toEqual(rootBefore);
   });
 
   it('nests and lifts items across bullet, ordered, and task list boundaries', () => {

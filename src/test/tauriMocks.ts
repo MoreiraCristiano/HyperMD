@@ -3,6 +3,8 @@ import { vi } from 'vitest';
 const tauriMocks = vi.hoisted(() => ({
   dialogOpen: vi.fn(),
   dialogSave: vi.fn(),
+  clipboardReadText: vi.fn(),
+  clipboardWriteText: vi.fn(),
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
   exists: vi.fn(),
@@ -41,6 +43,11 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: tauriMocks.dialogSave,
 }));
 
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+  readText: tauriMocks.clipboardReadText,
+  writeText: tauriMocks.clipboardWriteText,
+}));
+
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: tauriMocks.readTextFile,
   writeTextFile: tauriMocks.writeTextFile,
@@ -75,6 +82,7 @@ export function resetTauriMocks(): void {
   tauriMocks.rename.mockResolvedValue(undefined);
   tauriMocks.mkdir.mockResolvedValue(undefined);
   tauriMocks.writeTextFile.mockResolvedValue(undefined);
+  tauriMocks.clipboardWriteText.mockResolvedValue(undefined);
   tauriMocks.openUrl.mockResolvedValue(undefined);
 }
 

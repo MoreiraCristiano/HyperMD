@@ -240,19 +240,31 @@ function liftAcrossListTypes(editor: Editor, context: ListContext): boolean {
   return true;
 }
 
+function selectionInsideTableCell(editor: Editor): boolean {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const role = $from.node(depth).type.spec.tableRole;
+    if (role === 'cell' || role === 'header_cell') return true;
+  }
+  return false;
+}
+
 function handleListTab(editor: Editor, direction: 'sink' | 'lift'): boolean {
   const context = listContextAtSelection(editor);
   if (!context) return false;
 
   if (direction === 'sink') {
-    if (!editor.commands.sinkListItem(context.itemName)) sinkAcrossListTypes(editor, context);
+    const canNavigateTable = editor.state.selection.empty && selectionInsideTableCell(editor);
+    const moved =
+      editor.commands.sinkListItem(context.itemName) || sinkAcrossListTypes(editor, context);
+    if (!moved && canNavigateTable) return false;
   } else if (context.hasParentItem) {
     const parentItemName = editor.state.selection.$from.node(context.listDepth - 1).type.name;
     if (parentItemName !== context.itemName) liftAcrossListTypes(editor, context);
     else editor.commands.liftListItem(context.itemName);
   }
 
-  // Keep focus in the editor when the item cannot move any further.
+  // Keep focus when the item cannot move, except when a table can handle Tab navigation.
   return true;
 }
 

@@ -906,7 +906,8 @@ body.resizing-sidebar {
   margin: 1.35em 0;
 }
 .hypermd-table-viewport {
-  width: fit-content;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid #333432;
@@ -921,6 +922,7 @@ body.resizing-sidebar {
   box-shadow: 0 0 0 1px #70538f55;
 }
 .hypermd-table {
+  width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -932,6 +934,8 @@ body.resizing-sidebar {
   border-bottom: 1px solid #30312f;
   padding: 8px 10px;
   vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
   user-select: text;
 }
 .hypermd-table tr:last-child > * {
@@ -1247,6 +1251,12 @@ body.resizing-sidebar {
 :root[data-editor-word-wrap='off'] .hypermd-editor blockquote,
 :root[data-editor-word-wrap='off'] .hypermd-editor li {
   white-space: nowrap;
+}
+:root[data-editor-word-wrap='off']
+  .hypermd-editor
+  .hypermd-table
+  :is(p, h1, h2, h3, h4, h5, h6, blockquote, li) {
+  white-space: normal;
 }
 
 .title-bar,

@@ -1,22 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { tauriMocks } from '../../test/tauriMocks';
 import type { EditorApi } from './editorTypes';
 import Editor from './Editor.svelte';
 import { findTableContext } from './extensions/table';
 import { WORKSPACE_IMAGE_DRAG_TYPE } from '../sidebar/dragTypes';
 
 describe('Editor', () => {
-  const readText = vi.fn();
-  const writeText = vi.fn();
-
   beforeEach(() => {
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { readText, writeText },
-    });
-    readText.mockResolvedValue('pasted');
-    writeText.mockResolvedValue(undefined);
+    tauriMocks.clipboardReadText.mockResolvedValue('pasted');
+    tauriMocks.clipboardWriteText.mockResolvedValue(undefined);
   });
 
   async function mountEditor(onImagePaste = vi.fn(), onWorkspaceImageDrop = vi.fn()) {
@@ -44,13 +38,24 @@ describe('Editor', () => {
     api.focus();
     await api.execute('selectAll');
     await api.execute('copy');
-    expect(writeText).toHaveBeenCalled();
+    expect(tauriMocks.clipboardWriteText).toHaveBeenCalled();
     await api.execute('cut');
     expect(onTransaction).toHaveBeenCalled();
     await api.execute('paste');
     expect(container.querySelector('.ProseMirror')).toHaveTextContent('pasted');
     expect(await api.execute('undo')).toBe(true);
     expect(await api.execute('redo')).toBe(true);
+  });
+
+  it('preserves selected text when writing a cut to the clipboard fails', async () => {
+    const { api } = await mountEditor();
+    api.setState(api.createState('Alpha Beta', { anchor: 1, head: 6 }));
+    tauriMocks.clipboardWriteText.mockRejectedValueOnce(new Error('clipboard unavailable'));
+
+    await expect(api.execute('cut')).rejects.toThrow('clipboard unavailable');
+
+    expect(api.getState().doc.textContent).toBe('Alpha Beta');
+    expect(api.getState().selection).toMatchObject({ from: 1, to: 6 });
   });
 
   it('offers basic editing commands from the editor context menu', async () => {
@@ -69,7 +74,7 @@ describe('Editor', () => {
     expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeEnabled();
 
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy' }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('Alpha'));
+    await waitFor(() => expect(tauriMocks.clipboardWriteText).toHaveBeenLastCalledWith('Alpha'));
     expect(screen.queryByRole('menu', { name: 'Editor actions' })).not.toBeInTheDocument();
 
     await openMenu();

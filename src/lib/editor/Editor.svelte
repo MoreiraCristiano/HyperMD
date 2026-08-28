@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
   import { Editor } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
   import { EditorState, Selection, TextSelection } from '@tiptap/pm/state';
@@ -140,7 +141,7 @@
     if (command === 'redo') return editor.commands.redo();
     if (command === 'selectAll') return editor.chain().focus().selectAll().run();
     if (command === 'paste') {
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       if (!text) return false;
       return editor.chain().focus().insertContent(text, { contentType: 'markdown' }).run();
     }
@@ -148,7 +149,7 @@
     const { from, to } = editor.state.selection;
     if (from === to) return false;
     const text = editor.state.doc.textBetween(from, to, '\n');
-    await navigator.clipboard.writeText(text);
+    await writeText(text);
     if (command === 'cut') return editor.chain().focus().deleteSelection().run();
     return true;
   }

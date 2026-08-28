@@ -11,7 +11,11 @@ import {
 import { Table, TableCell, TableHeader, TableRow, updateColumns } from '@tiptap/extension-table';
 import { Fragment, type Node as ProseMirrorNode, type ResolvedPos } from '@tiptap/pm/model';
 import { Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
-import { TableMap, addRowAfter as addProseMirrorRowAfter } from '@tiptap/pm/tables';
+import {
+  TableMap,
+  addRowAfter as addProseMirrorRowAfter,
+  goToNextCell as goToProseMirrorCell,
+} from '@tiptap/pm/tables';
 import type { EditorView, NodeView, ViewMutationRecord } from '@tiptap/pm/view';
 
 export type TableAlignment = 'left' | 'center' | 'right';
@@ -474,6 +478,17 @@ function handleTableEnter(editor: Editor): boolean {
     }
   }
   return addTableRowAndFocus(editor);
+}
+
+function navigateTableCell(editor: Editor, direction: -1 | 1): boolean {
+  return goToProseMirrorCell(direction)(editor.state, (transaction) => {
+    const { selection } = transaction;
+    if (selection instanceof TextSelection && !selection.empty) {
+      const position = direction > 0 ? selection.from : selection.to;
+      transaction.setSelection(TextSelection.create(transaction.doc, position));
+    }
+    editor.view.dispatch(transaction.scrollIntoView());
+  });
 }
 
 function moveSelectionAfterTable(view: EditorView, getPos: NodeViewRendererProps['getPos']): void {
@@ -1001,7 +1016,7 @@ export function createMarkdownTableExtensions(): Extensions {
 
   const TableKeyboard = Extension.create({
     name: 'tableKeyboard',
-    priority: 1_000,
+    priority: 900,
     onTransaction({ editor, transaction }) {
       if (!transaction.getMeta(TABLE_MODE_ENTER)) return;
       queueMicrotask(() => activateAtSelection(editor));
@@ -1010,9 +1025,15 @@ export function createMarkdownTableExtensions(): Extensions {
       return {
         'Mod-a': () => selectCurrentCellContent(this.editor),
         Enter: () => handleTableEnter(this.editor),
+        Tab: () => {
+          if (!findTableContext(this.editor.state)) return false;
+          if (navigateTableCell(this.editor, 1)) return true;
+          if (!this.editor.can().addRowAfter()) return false;
+          return this.editor.chain().addRowAfter().goToNextCell().run();
+        },
         'Shift-Tab': () => {
           if (!findTableContext(this.editor.state)) return false;
-          this.editor.commands.goToPreviousCell();
+          navigateTableCell(this.editor, -1);
           return true;
         },
       };

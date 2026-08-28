@@ -18,6 +18,7 @@ import {
   moveTableRow,
   renderMarkdownTable,
 } from './extensions/table';
+import { ListKeyboard } from './extensions/listKeyboard';
 
 const editors: Editor[] = [];
 
@@ -29,6 +30,7 @@ function createEditor(content: string, onTransaction = vi.fn()): Editor {
       StarterKit,
       TaskList,
       TaskItem.configure({ nested: true }),
+      ListKeyboard,
       ...createMarkdownTableExtensions(),
       MarkdownSupport,
     ],
@@ -46,6 +48,15 @@ function selectCell(editor: Editor, row: number, column: number): void {
   editor.view.dispatch(
     editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(cell + 1), 1)),
   );
+}
+
+function selectTextEnd(editor: Editor, text: string): void {
+  let position: number | undefined;
+  editor.state.doc.descendants((node, nodePosition) => {
+    if (node.isText && node.text === text) position = nodePosition + node.nodeSize;
+  });
+  if (position === undefined) throw new Error(`Text not found: ${text}`);
+  editor.commands.setTextSelection(position);
 }
 
 function tableText(editor: Editor): string[][] {
@@ -278,6 +289,148 @@ describe('Markdown table editing', () => {
     editor.view.dom.dispatchEvent(previousFromFirst);
     expect(previousFromFirst.defaultPrevented).toBe(true);
     expect(findTableContext(editor.state)).toMatchObject({ row: 0, column: 0 });
+  });
+
+  it('uses Shift+Tab to lift nested list items before navigating table cells', () => {
+    const editor = createEditor(
+      ['| Items | Other |', '| --- | --- |', '| - one<br>- two | Keep |'].join('\n'),
+    );
+    let secondItemTextEnd = -1;
+    editor.state.doc.descendants((node, position) => {
+      if (node.isText && node.text === 'two') secondItemTextEnd = position + node.nodeSize;
+    });
+    expect(secondItemTextEnd).toBeGreaterThan(0);
+    editor.commands.setTextSelection(secondItemTextEnd);
+
+    const indent = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(indent);
+    const nestedList = editor.state.doc.firstChild?.child(1).child(0).firstChild;
+    expect(indent.defaultPrevented).toBe(true);
+    expect(nestedList?.type.name).toBe('bulletList');
+    expect(nestedList?.firstChild?.lastChild?.type.name).toBe('bulletList');
+    expect(findTableContext(editor.state)).toMatchObject({ row: 1, column: 0 });
+
+    const lift = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(lift);
+    const liftedList = editor.state.doc.firstChild?.child(1).child(0).firstChild;
+    expect(lift.defaultPrevented).toBe(true);
+    expect(liftedList?.childCount).toBe(2);
+    expect(liftedList?.child(1).textContent).toBe('two');
+    expect(findTableContext(editor.state)).toMatchObject({ row: 1, column: 0 });
+
+    const beforeRootLift = editor.getJSON();
+    editor.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(editor.getJSON()).toEqual(beforeRootLift);
+    expect(findTableContext(editor.state)).toMatchObject({ row: 1, column: 0 });
+  });
+
+  it('places a caret without replacing nested lists when navigating cells', () => {
+    const backward = createEditor(
+      ['| Items | Other |', '| --- | --- |', '| - one<br>- two | Keep |'].join('\n'),
+    );
+    selectTextEnd(backward, 'two');
+    backward.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    );
+    selectCell(backward, 1, 1);
+
+    const shiftTab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    backward.view.dom.dispatchEvent(shiftTab);
+
+    expect(shiftTab.defaultPrevented).toBe(true);
+    expect(backward.state.selection).toBeInstanceOf(TextSelection);
+    expect(backward.state.selection.empty).toBe(true);
+    expect(backward.state.selection.$from.parent.textContent).toBe('two');
+    expect(backward.state.selection.$from.parentOffset).toBe(3);
+    backward.commands.insertContent('!');
+    const backwardList = backward.state.doc.firstChild?.child(1).child(0).firstChild;
+    expect(backwardList?.firstChild?.lastChild?.type.name).toBe('bulletList');
+    expect(backwardList?.firstChild?.lastChild?.textContent).toBe('two!');
+
+    const forward = createEditor(
+      ['| Other | Items |', '| --- | --- |', '| Keep | - one<br>- two |'].join('\n'),
+    );
+    selectTextEnd(forward, 'two');
+    forward.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    );
+    selectCell(forward, 1, 0);
+
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    forward.view.dom.dispatchEvent(tab);
+
+    expect(tab.defaultPrevented).toBe(true);
+    expect(forward.state.selection).toBeInstanceOf(TextSelection);
+    expect(forward.state.selection.empty).toBe(true);
+    expect(forward.state.selection.$from.parent.textContent).toBe('one');
+    expect(forward.state.selection.$from.parentOffset).toBe(0);
+    forward.commands.insertContent('!');
+    const forwardList = forward.state.doc.firstChild?.child(1).child(1).firstChild;
+    expect(forwardList?.firstChild?.firstChild?.textContent).toBe('!one');
+    expect(forwardList?.firstChild?.lastChild?.type.name).toBe('bulletList');
+    expect(forwardList?.firstChild?.lastChild?.textContent).toBe('two');
+  });
+
+  it('moves to the next cell when a list item cannot be nested with Tab', () => {
+    const editor = createEditor(
+      ['| Items | Other |', '| --- | --- |', '| - one | Keep |'].join('\n'),
+    );
+    selectTextEnd(editor, 'one');
+    const before = editor.getJSON();
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+
+    editor.view.dom.dispatchEvent(tab);
+
+    expect(tab.defaultPrevented).toBe(true);
+    expect(editor.getJSON()).toEqual(before);
+    expect(findTableContext(editor.state)).toMatchObject({ row: 1, column: 1, height: 2 });
+  });
+
+  it('adds a row when an unnestable list item Tabs from the last cell', () => {
+    const editor = createEditor(
+      ['| Other | Items |', '| --- | --- |', '| Keep | - one |'].join('\n'),
+    );
+    selectTextEnd(editor, 'one');
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+
+    editor.view.dom.dispatchEvent(tab);
+
+    expect(tab.defaultPrevented).toBe(true);
+    expect(findTableContext(editor.state)).toMatchObject({ row: 2, column: 0, height: 3 });
+    expect(tableText(editor)[1]).toEqual(['Keep', 'one']);
   });
 
   it('keeps Mod+A selection inside the current table cell', () => {
@@ -561,6 +714,45 @@ describe('Markdown table editing', () => {
         ([event]) => event.transaction.getMeta(TABLE_MODE_EXIT) === true,
       ),
     ).toBe(true);
+  });
+
+  it('constrains table width and wraps cell content even when global word wrap is off', () => {
+    const styles = readFileSync('src/styles.css', 'utf8');
+    const patterns = [
+      /\.hypermd-table-viewport\s*\{[^}]*\}/,
+      /\.hypermd-table\s*\{[^}]*\}/,
+      /\.hypermd-table th,\s*\.hypermd-table td\s*\{[^}]*\}/,
+      /:root\[data-editor-word-wrap='off'\] \.hypermd-editor p,[\s\S]*?\{\s*white-space: nowrap;\s*\}/,
+      /:root\[data-editor-word-wrap='off'\]\s+\.hypermd-editor\s+\.hypermd-table\s+:is\([^)]*\)\s*\{[^}]*\}/,
+    ];
+    const rules = patterns.map((pattern) => styles.match(pattern)?.[0]);
+    expect(rules).not.toContain(undefined);
+    const stylesheet = document.head.appendChild(document.createElement('style'));
+    stylesheet.dataset.tableTestStyles = '';
+    stylesheet.textContent = rules.join('\n');
+    document.documentElement.dataset.editorWordWrap = 'off';
+    const editor = createEditor(
+      ['| Items | Other |', '| --- | --- |', '| - one | Keep |'].join('\n'),
+    );
+    editor.view.dom.classList.add('hypermd-editor');
+
+    const viewport = document.querySelector<HTMLElement>('.hypermd-table-viewport')!;
+    const table = viewport.querySelector<HTMLTableElement>('.hypermd-table')!;
+    const cell = table.querySelector<HTMLTableCellElement>('td')!;
+    const item = cell.querySelector<HTMLLIElement>('li')!;
+
+    expect(getComputedStyle(viewport)).toMatchObject({
+      boxSizing: 'border-box',
+      overflowX: 'auto',
+      width: '100%',
+    });
+    expect(getComputedStyle(table)).toMatchObject({ tableLayout: 'fixed', width: '100%' });
+    expect(getComputedStyle(cell)).toMatchObject({
+      minWidth: '90px',
+      overflowWrap: 'anywhere',
+      whiteSpace: 'normal',
+    });
+    expect(getComputedStyle(item).whiteSpace).toBe('normal');
   });
 
   it('blocks drag-and-drop initiated from table cells without changing the document', () => {
