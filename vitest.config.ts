@@ -1,9 +1,13 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
   plugins: [svelte(), svelteTesting()],
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   test: {
     include: ['src/**/*.test.ts'],
     environment: 'jsdom',
@@ -19,8 +23,8 @@ export default defineConfig({
         'src/test/**',
         'src/main.ts',
         'src/vite-env.d.ts',
-        'src/lib/editor/editorTypes.ts',
-        'src/lib/editor/codeblock/theme.ts',
+        'src/features/documents/editor/editorTypes.ts',
+        'src/features/documents/editor/codeblock/theme.ts',
       ],
       thresholds: {
         lines: 80,

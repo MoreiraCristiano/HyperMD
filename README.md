@@ -45,6 +45,8 @@ npm test
 npm run tauri build
 ```
 
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for source ownership, dependency rules, and the change checklist.
+
 ## Linux release
 
 Version tags publish an x86_64 AppImage suitable for CachyOS and other Linux distributions. After downloading it from the GitHub release:

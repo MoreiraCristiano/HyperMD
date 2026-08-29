@@ -1,7 +1,7 @@
 import { mount } from 'svelte';
-import App from './App.svelte';
-import './styles.css';
-import { initializeSettings } from './lib/settings/settingsStore';
+import App from '@/app/App.svelte';
+import './styles/index.css';
+import { initializeSettings } from '@/features/settings';
 
 async function start() {
   await initializeSettings();

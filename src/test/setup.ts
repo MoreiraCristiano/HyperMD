@@ -60,5 +60,7 @@ afterEach(() => {
   localStorage.clear();
   document.documentElement.removeAttribute('style');
   document.documentElement.removeAttribute('data-editor-word-wrap');
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute('data-theme-preference');
   vi.useRealTimers();
 });

@@ -1,0 +1,77 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+body {
+  overflow: hidden;
+  background: var(--color-surface-base);
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
+}
+button {
+  font: inherit;
+}
+
+.app-frame {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--tone-262625);
+  background: var(--color-surface-base);
+}
+.app-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  transition: opacity 120ms ease;
+}
+.app-navigation {
+  position: relative;
+  z-index: 110;
+  display: flex;
+  height: 100%;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+.app-workspace {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-shell.busy {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.editor-pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-surface-base);
+}
+
+.editor-scroll {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+.content-view.hidden {
+  display: none;
+}
