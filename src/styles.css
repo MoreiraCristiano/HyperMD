@@ -436,12 +436,15 @@ body.resizing-sidebar {
   color: #8e8e8a;
   line-height: 1.45;
 }
+.empty-workspace {
+  min-height: 0;
+  flex: 1;
+}
 .empty-workspace p,
 .settings-empty p {
   margin: 0 0 10px;
   color: #c9c9c5;
 }
-.empty-workspace button,
 .change-workspace {
   border: 1px solid #3c3c3a;
   border-radius: 4px;
@@ -450,7 +453,6 @@ body.resizing-sidebar {
   color: #d8d8d4;
   cursor: pointer;
 }
-.empty-workspace button:hover,
 .change-workspace:hover {
   background: #333331;
 }

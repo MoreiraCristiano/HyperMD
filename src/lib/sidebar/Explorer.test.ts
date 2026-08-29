@@ -54,6 +54,8 @@ describe('Explorer', () => {
     tauriMocks.dialogOpen.mockResolvedValueOnce(null).mockResolvedValueOnce('/chosen');
     render(Explorer, handlers);
     const open = screen.getByRole('button', { name: 'Open Folder' });
+    expect(open).toHaveClass('change-workspace');
+    expect(open.parentElement).toHaveClass('explorer-content');
     await fireEvent.click(open);
     expect(handlers.onChangeWorkspace).not.toHaveBeenCalled();
     await fireEvent.click(open);
@@ -96,6 +98,79 @@ describe('Explorer', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(tauriMocks.readDir.mock.calls.length).toBeGreaterThan(2));
     expect(prompt).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves expanded folders when creating at the root and in a folder', async () => {
+    let rootFolderCreated = false;
+    let nestedFolderCreated = false;
+    tauriMocks.mkdir.mockImplementation(async (path: string) => {
+      if (path === '/work/root-new') rootFolderCreated = true;
+      if (path === '/work/docs/inside-new') nestedFolderCreated = true;
+    });
+    tauriMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === '/work/docs/nested') return [file('child.md')];
+      if (path === '/work/docs/other') return [file('other.md')];
+      if (path === '/work/docs') {
+        return [
+          directory('nested'),
+          directory('other'),
+          ...(nestedFolderCreated ? [directory('inside-new')] : []),
+        ];
+      }
+      if (path === '/work/sibling') return [file('stay.md')];
+      return [
+        directory('docs'),
+        directory('sibling'),
+        ...(rootFolderCreated ? [directory('root-new')] : []),
+      ];
+    });
+    vi.spyOn(dialogService, 'prompt')
+      .mockResolvedValueOnce('root-new')
+      .mockResolvedValueOnce('inside-new');
+    render(Explorer, props());
+
+    const docs = await screen.findByRole('treeitem', { name: /docs/ });
+    await fireEvent.click(docs);
+    const nested = await screen.findByRole('treeitem', { name: /nested/ });
+    await fireEvent.click(nested);
+    const other = screen.getByRole('treeitem', { name: 'other' });
+    await fireEvent.click(other);
+    const sibling = screen.getByRole('treeitem', { name: /sibling/ });
+    await fireEvent.click(sibling);
+    await fireEvent.click(screen.getByRole('tree', { name: 'Workspace files' }));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+    expect(await screen.findByRole('treeitem', { name: /root-new/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /docs/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: /nested/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: 'other' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /sibling/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /child.md/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /other.md/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /stay.md/ })).toBeInTheDocument();
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /docs/ }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'New Folder' }));
+    expect(await screen.findByRole('treeitem', { name: /inside-new/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /nested/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: 'other' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /child.md/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /other.md/ })).toBeInTheDocument();
   });
 
   it('renames, moves, opens, refreshes, and deletes from context menus', async () => {

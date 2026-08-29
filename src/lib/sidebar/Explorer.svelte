@@ -270,6 +270,23 @@
     return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
   }
 
+  function preserveDirectoryState(current: FileNode[], refreshed: FileNode[]): FileNode[] {
+    return refreshed.map((node) => {
+      if (!node.isDirectory) return node;
+      const existing = current.find(
+        (candidate) => candidate.isDirectory && samePath(candidate.path, node.path),
+      );
+      if (!existing) return node;
+      return {
+        ...node,
+        expanded: existing.expanded,
+        loading: existing.loading,
+        loaded: existing.loaded,
+        children: existing.children,
+      };
+    });
+  }
+
   function detachNode(nodes: FileNode[], path: string): FileNode | null {
     const index = nodes.findIndex((node) => samePath(node.path, path));
     if (index !== -1) return nodes.splice(index, 1)[0];
@@ -408,11 +425,21 @@
     if (root && valid) void moveNodesToDirectory(sources, root);
   }
 
-  async function refreshDirectory(path: string) {
+  async function refreshDirectory(path: string, preserveExpanded = false) {
     const root = $sidebarState.workspacePath;
     if (!root) return;
     if (path === root) {
-      await loadRoot();
+      if (!preserveExpanded) {
+        await loadRoot();
+        return;
+      }
+      loading = true;
+      try {
+        entries = preserveDirectoryState(entries, await readWorkspaceDirectory(root, root));
+        clearSelection();
+      } finally {
+        loading = false;
+      }
       return;
     }
     const node = findDirectory(entries, path);
@@ -420,7 +447,8 @@
       await loadRoot();
       return;
     }
-    node.children = await readWorkspaceDirectory(root, path);
+    const refreshed = await readWorkspaceDirectory(root, path);
+    node.children = preserveExpanded ? preserveDirectoryState(node.children, refreshed) : refreshed;
     node.loaded = true;
     node.expanded = true;
   }
@@ -444,7 +472,7 @@
     if (!name) return;
     await run(async () => {
       const path = await createMarkdownFile(root, parent, name);
-      await refreshDirectory(parent);
+      await refreshDirectory(parent, true);
       await onOpenFile(path);
     });
   }
@@ -463,7 +491,7 @@
     if (!name) return;
     await run(async () => {
       await createWorkspaceFolder(root, parent, name);
-      await refreshDirectory(parent);
+      await refreshDirectory(parent, true);
     });
   }
 
@@ -697,8 +725,8 @@
   {#if !$sidebarState.workspacePath}
     <div class="empty-workspace">
       <p>No folder open.</p>
-      <button onclick={selectWorkspace}>Open Folder</button>
     </div>
+    <button class="change-workspace" onclick={selectWorkspace}>Open Folder</button>
   {:else}
     <div class="explorer-heading">
       <button
