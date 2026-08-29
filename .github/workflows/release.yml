@@ -13,8 +13,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Test, build, and release
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+
+    steps:
+      - name: Validate tag
+        id: version
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use the vX.Y.Z format. Received: $TAG_NAME" >&2
+            exit 1
+          fi
+
+          echo "value=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Test and build Windows
+    needs: validate
     runs-on: windows-2025
 
     steps:
@@ -30,18 +51,6 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Validate tag
-        id: version
-        shell: pwsh
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          if ($env:TAG_NAME -notmatch '^v\d+\.\d+\.\d+$') {
-            throw "Release tag must use the vX.Y.Z format. Received: $env:TAG_NAME"
-          }
-
-          "value=$($env:TAG_NAME.Substring(1))" >> $env:GITHUB_OUTPUT
-
       - name: Install dependencies
         run: npm ci
 
@@ -53,7 +62,7 @@ jobs:
         id: build
         shell: pwsh
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
         run: |
           ./scripts/build.ps1 -Version $env:RELEASE_VERSION
 
@@ -67,27 +76,100 @@ jobs:
 
           "installer=$($installer.FullName)" >> $env:GITHUB_OUTPUT
 
+      - name: Store Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: ${{ steps.build.outputs.installer }}
+          if-no-files-found: error
+
+  linux:
+    name: Build Linux AppImage
+    needs: validate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AppImage
+        id: build
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          bash ./scripts/build.sh "$RELEASE_VERSION"
+          appimage=$(realpath src-tauri/target/release/bundle/appimage/*.AppImage)
+          echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
+
+      - name: Store Linux AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-appimage
+          path: ${{ steps.build.outputs.appimage }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - windows
+      - linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '*'
+          path: release-assets
+          merge-multiple: true
+
       - name: Publish GitHub release
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-          INSTALLER_PATH: ${{ steps.build.outputs.installer }}
         run: |
-          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
-          $releaseExists = $LASTEXITCODE -eq 0
+          mapfile -d '' installers < <(find release-assets -type f -name '*-setup.exe' -print0)
+          mapfile -d '' appimages < <(find release-assets -type f -name '*.AppImage' -print0)
 
-          if ($releaseExists) {
-            gh release upload $env:RELEASE_TAG $env:INSTALLER_PATH --clobber --repo $env:GITHUB_REPOSITORY
-          }
-          else {
-            gh release create $env:RELEASE_TAG $env:INSTALLER_PATH `
-              --verify-tag `
-              --title "HyperMD $env:RELEASE_TAG" `
-              --generate-notes `
-              --repo $env:GITHUB_REPOSITORY
-          }
+          if [[ ${#installers[@]} -ne 1 || ${#appimages[@]} -ne 1 ]]; then
+            echo "Expected one Windows installer and one AppImage." >&2
+            exit 1
+          fi
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub release publication failed with exit code $LASTEXITCODE."
-          }
+          assets=("${installers[0]}" "${appimages[0]}")
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --verify-tag \
+              --title "HyperMD $RELEASE_TAG" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi

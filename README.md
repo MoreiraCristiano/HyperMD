@@ -44,3 +44,14 @@ To run the tests or create a production build:
 npm test
 npm run tauri build
 ```
+
+## Linux release
+
+Version tags publish an x86_64 AppImage suitable for CachyOS and other Linux distributions. After downloading it from the GitHub release:
+
+```bash
+chmod +x HyperMD_*.AppImage
+./HyperMD_*.AppImage
+```
+
+`scripts/build.sh` is intended for the Linux job in GitHub Actions. The release workflow publishes the AppImage together with the Windows installer.
