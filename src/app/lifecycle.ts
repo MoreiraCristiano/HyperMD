@@ -41,7 +41,7 @@ export function setupAppLifecycle(options: AppLifecycleOptions): () => void {
     void (
       hasDirtyTabs
         ? documentManager.prepareWindowClose()
-        : Promise.resolve(documentManager.persistSession()).then(() => true)
+        : documentManager.flushSession().then(() => true)
     )
       .then(async (canClose) => {
         if (!canClose) return;

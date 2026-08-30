@@ -1,6 +1,7 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
 import { derived, writable } from 'svelte/store';
+import type { MarkdownSourceSnapshot } from '../markdownSource';
 
 type BaseTab = {
   id: string;
@@ -16,6 +17,8 @@ export type MarkdownTab = BaseTab & {
   type: 'markdown';
   state: EditorState;
   savedDoc: ProseMirrorNode;
+  diskRevision?: string | null;
+  sourceSnapshot?: MarkdownSourceSnapshot;
 };
 
 export type ImageTab = BaseTab & {

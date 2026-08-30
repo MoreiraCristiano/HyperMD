@@ -5,6 +5,9 @@
     documentManager,
     ImageViewer,
     TablePicker,
+    type ImageReferenceProgress,
+    documentNotice,
+    documentNoticeActions,
   } from '@/features/documents';
   import { SettingsView } from '@/features/settings';
   import { ActivityBar, Sidebar } from '@/features/workspace';
@@ -27,20 +30,31 @@
   let error = $state<string | null>(null);
   let commandPaletteOpen = $state(false);
   let tablePickerOpen = $state(false);
+  let renameProgress = $state<ImageReferenceProgress | null>(null);
+
+  $effect(() => {
+    if ($documentNotice) {
+      error = $documentNotice;
+      documentNoticeActions.clear();
+    }
+  });
 
   const {
     changeWorkspace,
+    cancelImageRename,
     commandEnabled,
     dropWorkspaceImage,
     editorReady,
     executeCommand,
     openDocumentAt,
     pasteImage,
+    renameEntry,
     renameWorkspacePath,
     showError,
   } = createAppController({
     setBusy: (value) => (busy = value),
     setError: (message) => (error = message),
+    setRenameProgress: (progress) => (renameProgress = progress),
     openTablePicker: () => (tablePickerOpen = true),
   });
 
@@ -87,6 +101,7 @@
         onChangeWorkspace={changeWorkspace}
         onBeforeDelete={() => Promise.resolve(true)}
         onDeleted={(path, isDirectory) => documentManager.markMissing(path, isDirectory)}
+        onRenameEntry={renameEntry}
         onRenamed={renameWorkspacePath}
         onError={showError}
       />
@@ -124,6 +139,22 @@
     <button class="error-toast" onclick={() => (error = null)} aria-label="Dismiss error">
       {error}
     </button>
+  {/if}
+
+  {#if renameProgress}
+    <div class="progress-toast" role="status" aria-live="polite">
+      <span>
+        {renameProgress.phase === 'preflight'
+          ? 'Checking image references'
+          : renameProgress.phase === 'commit'
+            ? 'Updating image references'
+            : 'Recovering image references'}
+        ({renameProgress.completed}/{renameProgress.total})
+      </span>
+      {#if renameProgress.cancelable}
+        <button type="button" onclick={cancelImageRename}>Cancel</button>
+      {/if}
+    </div>
   {/if}
 
   <CommandPalette

@@ -1,5 +1,13 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile } from '@tauri-apps/plugin-fs';
+import {
+  atomicWriteTextFile,
+  conditionalAtomicWriteTextFile,
+  readTextFileWithRevision,
+  type ConditionalWriteResult,
+  type FileRevisionExpectation,
+  type RevisionedTextReadResult,
+} from './atomicWrite';
 
 const markdownFilters = [{ name: 'Markdown', extensions: ['md', 'markdown'] }];
 
@@ -13,13 +21,44 @@ export async function chooseSavePath(defaultPath?: string): Promise<string | nul
 }
 
 export async function readMarkdown(path: string): Promise<string> {
-  const contents = await readTextFile(path);
+  const result = await readMarkdownWithRevision(path);
+  if (result.status === 'io-error') throw new Error(result.message);
+  const contents = result.contents;
   return contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+export async function readMarkdownWithRevision(path: string): Promise<RevisionedTextReadResult> {
+  return readTextFileWithRevision(path);
+}
+
+export async function readMarkdownSource(path: string): Promise<string> {
+  return readTextFile(path);
 }
 
 export async function writeMarkdown(path: string, markdown: string): Promise<void> {
   const normalized = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  await writeTextFile(path, normalized);
+  await atomicWriteTextFile(path, normalized);
+}
+
+export async function writeMarkdownConditionally(
+  path: string,
+  markdown: string,
+  expected: FileRevisionExpectation,
+): Promise<ConditionalWriteResult> {
+  const normalized = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return conditionalAtomicWriteTextFile(path, normalized, expected);
+}
+
+export async function writeMarkdownSourceConditionally(
+  path: string,
+  contents: string,
+  expected: FileRevisionExpectation,
+): Promise<ConditionalWriteResult> {
+  return conditionalAtomicWriteTextFile(path, contents, expected);
+}
+
+export async function restoreMarkdownSource(path: string, markdown: string): Promise<void> {
+  await atomicWriteTextFile(path, markdown);
 }
 
 export function fileName(path: string | null): string {

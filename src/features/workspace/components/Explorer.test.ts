@@ -27,6 +27,13 @@ describe('Explorer', () => {
     onChangeWorkspace: vi.fn().mockResolvedValue(true),
     onBeforeDelete: vi.fn().mockResolvedValue(true),
     onDeleted: vi.fn(),
+    onRenameEntry: vi.fn(async (oldPath: string, requestedName: string, isDirectory: boolean) => {
+      const name =
+        !isDirectory && !requestedName.toLowerCase().endsWith('.md')
+          ? `${requestedName}.md`
+          : requestedName;
+      return oldPath.replace(/[^/]+$/, name);
+    }),
     onRenamed: vi.fn().mockResolvedValue(undefined),
     onError: vi.fn(),
   });
@@ -184,7 +191,12 @@ describe('Explorer', () => {
     await fireEvent.contextMenu(note, { clientX: 10, clientY: 10 });
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
     await waitFor(() =>
-      expect(handlers.onRenamed).toHaveBeenCalledWith('/work/note.md', '/work/renamed.md', false),
+      expect(handlers.onRenameEntry).toHaveBeenCalledWith(
+        '/work/note.md',
+        'renamed',
+        false,
+        'markdown',
+      ),
     );
 
     const refreshedNote = await screen.findByRole('treeitem', { name: /renamed.md/ });
@@ -235,10 +247,11 @@ describe('Explorer', () => {
     await fireEvent.contextMenu(child);
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
     await waitFor(() =>
-      expect(handlers.onRenamed).toHaveBeenCalledWith(
+      expect(handlers.onRenameEntry).toHaveBeenCalledWith(
         '/work/docs/nested/child.md',
-        '/work/docs/nested/renamed.md',
+        'renamed',
         false,
+        'markdown',
       ),
     );
 
@@ -258,10 +271,11 @@ describe('Explorer', () => {
     await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /nested/ }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
     await waitFor(() =>
-      expect(handlers.onRenamed).toHaveBeenCalledWith(
+      expect(handlers.onRenameEntry).toHaveBeenCalledWith(
         '/work/docs/nested',
-        '/work/docs/renamed-nested',
+        'renamed-nested',
         true,
+        null,
       ),
     );
     const renamedFolder = screen.getByRole('treeitem', { name: /renamed-nested/ });
@@ -333,6 +347,121 @@ describe('Explorer', () => {
     await waitFor(() => expect(handlers.onRenamed).toHaveBeenCalledTimes(1));
     finishFirst();
     await waitFor(() => expect(handlers.onRenamed).toHaveBeenCalledTimes(2));
+  });
+
+  it('updates open tabs only after a directory move commits', async () => {
+    tauriMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === '/work/archive') return [];
+      if (path === '/work/docs') return [file('open.md')];
+      return [directory('archive'), directory('docs')];
+    });
+    vi.spyOn(dialogService, 'prompt').mockResolvedValue('archive');
+    const handlers = props();
+    render(Explorer, handlers);
+
+    const archive = await screen.findByRole('treeitem', { name: /archive/ });
+    await fireEvent.click(archive);
+    const docs = screen.getByRole('treeitem', { name: /docs/ });
+    await fireEvent.contextMenu(docs);
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Move' }));
+
+    await waitFor(() =>
+      expect(handlers.onRenamed).toHaveBeenCalledWith('/work/docs', '/work/archive/docs', true),
+    );
+    expect(tauriMocks.rename).toHaveBeenCalledWith('/work/docs', '/work/archive/docs');
+    expect(screen.getByRole('treeitem', { name: /docs/ })).toHaveAttribute(
+      'title',
+      '/work/archive/docs',
+    );
+  });
+
+  it('keeps the original tree and tabs after a complete rollback', async () => {
+    const handlers = props();
+    tauriMocks.rename
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('disk failure'))
+      .mockResolvedValueOnce(undefined);
+    render(Explorer, handlers);
+    const folder = await screen.findByRole('treeitem', { name: /docs/ });
+    const note = screen.getByRole('treeitem', { name: /note.md/ });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    await fireEvent.click(note, { ctrlKey: true });
+    await fireEvent.click(image, { ctrlKey: true });
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+
+    await fireEvent.dragStart(note, { dataTransfer: transfer });
+    await fireEvent.dragOver(folder, { dataTransfer: transfer });
+    await fireEvent.drop(folder, { dataTransfer: transfer });
+
+    await waitFor(() =>
+      expect(handlers.onError).toHaveBeenCalledWith(
+        'Move failed: disk failure. Original state was restored; no items were left at the destination.',
+      ),
+    );
+    expect(handlers.onRenamed).not.toHaveBeenCalled();
+    expect(screen.getByRole('treeitem', { name: /note.md/ })).toHaveAttribute(
+      'title',
+      '/work/note.md',
+    );
+    expect(screen.getByRole('treeitem', { name: /a.png/ })).toHaveAttribute('title', '/work/a.png');
+  });
+
+  it('reloads affected directories and reconciles tabs after a partial rollback', async () => {
+    let partial = false;
+    tauriMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === '/work/docs') {
+        return partial ? [file('child.md'), file('a.png')] : [file('child.md')];
+      }
+      return partial
+        ? [directory('docs'), file('note.md')]
+        : [directory('docs'), file('note.md'), file('a.png')];
+    });
+    tauriMocks.rename.mockImplementation(async (oldPath: string) => {
+      if (oldPath === '/work/note.md') throw new Error('disk failure');
+      if (oldPath === '/work/docs/a.png') {
+        partial = true;
+        throw new Error('rollback failure');
+      }
+    });
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const handlers = props();
+    render(Explorer, handlers);
+    const folder = await screen.findByRole('treeitem', { name: /docs/ });
+    await fireEvent.click(folder);
+    const note = screen.getByRole('treeitem', { name: /note.md/ });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    await fireEvent.click(note);
+    await fireEvent.click(image, { ctrlKey: true });
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+
+    await fireEvent.dragStart(note, { dataTransfer: transfer });
+    await fireEvent.dragOver(folder, { dataTransfer: transfer });
+    await fireEvent.drop(folder, { dataTransfer: transfer });
+
+    await waitFor(() =>
+      expect(handlers.onError).toHaveBeenCalledWith(
+        expect.stringContaining('Rollback incomplete; items not recovered'),
+      ),
+    );
+    expect(handlers.onError).toHaveBeenCalledWith(
+      expect.stringContaining('/work/a.png → /work/docs/a.png'),
+    );
+    expect(handlers.onRenamed).toHaveBeenCalledTimes(1);
+    expect(handlers.onRenamed).toHaveBeenCalledWith('/work/a.png', '/work/docs/a.png', false);
+    expect(screen.getByRole('treeitem', { name: /a.png/ })).toHaveAttribute(
+      'title',
+      '/work/docs/a.png',
+    );
+    expect(screen.getByRole('treeitem', { name: /note.md/ })).toHaveAttribute(
+      'title',
+      '/work/note.md',
+    );
+    expect(tauriMocks.readDir).toHaveBeenCalledWith('/work');
+    expect(tauriMocks.readDir).toHaveBeenCalledWith('/work/docs');
+    expect(report).toHaveBeenCalledWith(
+      'Failed to roll back workspace move /work/docs/a.png -> /work/a.png',
+      expect.any(Error),
+    );
   });
 
   it('reports reference update failures after moving an image', async () => {

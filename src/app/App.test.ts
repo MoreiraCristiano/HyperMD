@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriMocks } from '@/test/tauriMocks';
 import { documentManager, tabsState } from '@/features/documents';
+import { sidebarState } from '@/features/workspace';
 import { dialogService, resolveDialog } from '@/shared/ui/dialogs';
 import App from './App.svelte';
 
@@ -40,7 +41,7 @@ describe('App', () => {
     const openFind = vi.spyOn(documentManager, 'openFind').mockReturnValue(true);
     const activateRelative = vi.spyOn(documentManager, 'activateRelative');
     const activatePosition = vi.spyOn(documentManager, 'activatePosition');
-    const persist = vi.spyOn(documentManager, 'persistSession');
+    const flush = vi.spyOn(documentManager, 'flushSession').mockResolvedValue();
     render(App);
     await waitFor(() => expect(tabsState).toBeDefined());
     await waitFor(() => expect(closeHandler).toBeDefined());
@@ -76,7 +77,7 @@ describe('App', () => {
     closeHandler?.({ preventDefault });
     await waitFor(() => expect(windowApi.destroy).toHaveBeenCalled());
     expect(preventDefault).toHaveBeenCalled();
-    expect(persist).toHaveBeenCalled();
+    expect(flush).toHaveBeenCalled();
   });
 
   it('opens files, shows operation errors, and dismisses error toast', async () => {
@@ -90,6 +91,39 @@ describe('App', () => {
     expect(toast).toHaveTextContent('cannot open');
     await user.click(toast);
     expect(screen.queryByRole('button', { name: 'Dismiss error' })).not.toBeInTheDocument();
+  });
+
+  it('coordinates workspace rename and document path updates in the app layer', async () => {
+    sidebarState.set({
+      visible: true,
+      width: 240,
+      activeView: 'explorer',
+      workspacePath: '/work',
+      workspaceName: 'Work',
+    });
+    tauriMocks.readDir.mockResolvedValue([
+      { name: 'photo.png', isFile: true, isDirectory: false, isSymlink: false },
+    ]);
+    vi.spyOn(dialogService, 'prompt').mockResolvedValue('renamed');
+    const renamePathOnly = vi.spyOn(documentManager, 'renamePathOnly');
+    render(App);
+
+    const image = await screen.findByRole('treeitem', { name: /photo.png/ });
+    await fireEvent.contextMenu(image);
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+
+    await waitFor(() =>
+      expect(tauriMocks.rename).toHaveBeenCalledWith('/work/photo.png', '/work/renamed.png'),
+    );
+    await waitFor(() =>
+      expect(renamePathOnly).toHaveBeenCalledWith('/work/photo.png', '/work/renamed.png', false),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('treeitem', { name: /renamed.png/ })).toHaveAttribute(
+        'title',
+        '/work/renamed.png',
+      ),
+    );
   });
 
   it('dispatches every command-palette command to its owner', async () => {

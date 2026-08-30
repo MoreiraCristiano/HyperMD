@@ -13,7 +13,12 @@ export {
 } from './workspaceStore';
 export {
   chooseWorkspace,
+  commitWorkspaceEntryRename,
   isInsideWorkspace,
   listWorkspaceMarkdownFiles,
   pathName,
+  planWorkspaceEntryRename,
+  renameWorkspaceEntry,
+  rollbackWorkspaceEntryRename,
 } from './workspaceService';
+export type { WorkspaceFileType, WorkspaceRenamePlan } from './workspaceService';

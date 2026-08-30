@@ -45,6 +45,14 @@ npm test
 npm run tauri build
 ```
 
+Desktop E2E tests build an isolated Tauri binary, create a temporary workspace, and remove it after the run. Windows is the initial supported E2E target.
+
+```bash
+npm run test:e2e
+```
+
+Failure logs and screenshots are written to `e2e/artifacts`.
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for source ownership, dependency rules, and the change checklist.
 
 ## Linux release

@@ -37,35 +37,41 @@ export class AutoSaveCoordinator implements AutoSaveService {
   }
 
   schedule(tab: EditorTab): void {
-    this.clear(tab.id);
     if (!this.autoSaveEnabled || !isMarkdownTab(tab) || !tab.dirty || !tab.path || tab.missing) {
+      this.clear(tab.id);
       return;
     }
+    if (this.autoSaveTimers.has(tab.id)) return;
     this.autoSaveTimers.set(
       tab.id,
       setTimeout(() => {
         this.autoSaveTimers.delete(tab.id);
         const current = get(tabsState).tabs.find((candidate) => candidate.id === tab.id);
         if (!current || !isMarkdownTab(current) || !current.dirty || !current.path) return;
-        void this.options.save(current.id).catch((error) =>
-          console.warn(`Auto Save failed for ${current.name}.`, error),
-        );
+        void this.options
+          .save(current.id)
+          .catch((error) => console.warn(`Auto Save failed for ${current.name}.`, error));
       }, 1000),
     );
   }
 
   clear(id: string): void {
     const timer = this.autoSaveTimers.get(id);
-    if (timer) clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     this.autoSaveTimers.delete(id);
   }
 
   scheduleSessionPersist(): void {
-    clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => this.options.persistSession(), 800);
+    if (this.persistTimer !== undefined) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = undefined;
+      this.options.persistSession();
+    }, 800);
   }
 
   persistSession(): void {
+    clearTimeout(this.persistTimer);
+    this.persistTimer = undefined;
     this.options.persistSession();
   }
 
@@ -77,6 +83,7 @@ export class AutoSaveCoordinator implements AutoSaveService {
 
   dispose(): void {
     clearTimeout(this.persistTimer);
+    this.persistTimer = undefined;
     this.clearAllAutoSaves();
     this.unsubscribeSettings();
   }

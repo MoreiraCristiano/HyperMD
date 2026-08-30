@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Explorer from './Explorer.svelte';
+  import type { WorkspaceFileType } from '../workspaceService';
   import { MAX_WIDTH, MIN_WIDTH, sidebarActions, sidebarState } from '../workspaceStore';
 
   type Props = {
@@ -9,6 +10,12 @@
     onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
+    onRenameEntry: (
+      oldPath: string,
+      requestedName: string,
+      isDirectory: boolean,
+      fileType: WorkspaceFileType | null,
+    ) => Promise<string>;
     onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => Promise<void>;
     onError: (message: string) => void;
   };
@@ -19,6 +26,7 @@
     onChangeWorkspace,
     onBeforeDelete,
     onDeleted,
+    onRenameEntry,
     onRenamed,
     onError,
   }: Props = $props();
@@ -73,6 +81,7 @@
       {onChangeWorkspace}
       {onBeforeDelete}
       {onDeleted}
+      {onRenameEntry}
       {onRenamed}
       {onError}
     />

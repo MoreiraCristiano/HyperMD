@@ -1,6 +1,7 @@
 node_modules
 dist
 coverage
+e2e/artifacts
 src-tauri/target
 src-tauri/gen
 .DS_Store

@@ -20,6 +20,7 @@ import {
 import { AutoSaveCoordinator, type AutoSaveService } from './autoSaveCoordinator';
 import { DocumentPersistence, type DocumentPersistenceService } from './documentPersistence';
 import { DirtyDocumentGuard, type DirtyDocumentGuardService } from './dirtyDocumentGuard';
+import { documentNoticeActions } from './documentNotice';
 
 function comparablePath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
@@ -49,7 +50,7 @@ export class DocumentManager {
     this.autoSave =
       autoSave ??
       new AutoSaveCoordinator({
-        save: (id) => this.save(id),
+        save: (id) => this.save(id, false, 'auto'),
         persistSession: () => this.persistNow(),
         flushSession: () => this.flushNow(),
       });
@@ -61,6 +62,7 @@ export class DocumentManager {
         publish: (snapshot) => this.publish(snapshot),
         activate: (id) => this.activate(id),
         scheduleAutoSave: (tab) => this.autoSave.schedule(tab),
+        reportWarning: (message) => documentNoticeActions.show(message),
       });
     this.dirtyGuard =
       dirtyGuard ??
@@ -102,8 +104,10 @@ export class DocumentManager {
       pinned: false,
       state,
       savedDoc: state.doc,
+      sourceSnapshot: { source: '', canonical: '' },
       dirty: false,
       missing: false,
+      diskRevision: null,
     };
     this.untitledIndex += 1;
     const snapshot = get(tabsState);
@@ -227,8 +231,12 @@ export class DocumentManager {
     }
   }
 
-  async save(id = get(tabsState).activeId, saveAs = false): Promise<boolean> {
-    return this.persistence.save(id, saveAs);
+  async save(
+    id = get(tabsState).activeId,
+    saveAs = false,
+    source: 'manual' | 'auto' = 'manual',
+  ): Promise<boolean> {
+    return this.persistence.save(id, saveAs, source);
   }
 
   async close(id = get(tabsState).activeId): Promise<boolean> {

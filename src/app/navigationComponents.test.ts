@@ -223,6 +223,7 @@ describe('navigation components', () => {
       onChangeWorkspace: vi.fn(),
       onBeforeDelete: vi.fn(),
       onDeleted: vi.fn(),
+      onRenameEntry: vi.fn(),
       onRenamed: vi.fn(),
       onError: vi.fn(),
     };
@@ -255,6 +256,7 @@ describe('navigation components', () => {
       onChangeWorkspace: vi.fn().mockResolvedValue(true),
       onBeforeDelete: vi.fn().mockResolvedValue(true),
       onDeleted: vi.fn(),
+      onRenameEntry: vi.fn().mockResolvedValue('/work/renamed.md'),
       onRenamed: vi.fn().mockResolvedValue(undefined),
       onError: vi.fn(),
     };

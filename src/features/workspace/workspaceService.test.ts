@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriMocks } from '@/test/tauriMocks';
 import {
   childPath,
@@ -9,6 +9,8 @@ import {
   listWorkspaceMarkdownFiles,
   moveWorkspaceEntries,
   pathName,
+  planWorkspaceEntryRename,
+  commitWorkspaceEntryRename,
   readWorkspaceDirectory,
   relativeWorkspacePath,
   removeWorkspaceEntry,
@@ -115,10 +117,23 @@ describe('workspace', () => {
     );
   });
 
-  it('plans moves, reports partial failure, and blocks invalid destinations', async () => {
-    tauriMocks.rename
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('disk failure'));
+  it('plans rename without mutation and rechecks the destination at commit time', async () => {
+    const plan = await planWorkspaceEntryRename(
+      '/work',
+      '/work/image.png',
+      'renamed',
+      false,
+      'image',
+    );
+    expect(plan.newPath).toBe('/work/renamed.png');
+    expect(tauriMocks.rename).not.toHaveBeenCalled();
+
+    tauriMocks.exists.mockResolvedValueOnce(true);
+    await expect(commitWorkspaceEntryRename(plan)).rejects.toThrow('already exists');
+    expect(tauriMocks.rename).not.toHaveBeenCalled();
+  });
+
+  it('commits every planned move in order', async () => {
     const result = await moveWorkspaceEntries(
       '/work',
       [
@@ -127,10 +142,97 @@ describe('workspace', () => {
       ],
       'docs',
     );
-    expect(result.moved).toEqual([
-      { path: '/work/a.md', isDirectory: false, newPath: '/work/docs/a.md' },
+    expect(result).toEqual({
+      status: 'committed',
+      moves: [
+        { path: '/work/a.md', isDirectory: false, newPath: '/work/docs/a.md' },
+        { path: '/work/b.md', isDirectory: false, newPath: '/work/docs/b.md' },
+      ],
+    });
+    expect(tauriMocks.rename.mock.calls).toEqual([
+      ['/work/a.md', '/work/docs/a.md'],
+      ['/work/b.md', '/work/docs/b.md'],
     ]);
-    expect(result.error).toEqual(new Error('disk failure'));
+  });
+
+  it('rolls completed moves back in reverse order after a later failure', async () => {
+    const cause = new Error('disk failure');
+    tauriMocks.rename
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(cause)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const result = await moveWorkspaceEntries(
+      '/work',
+      [
+        { path: '/work/a.md', isDirectory: false },
+        { path: '/work/b.md', isDirectory: false },
+        { path: '/work/c.md', isDirectory: false },
+      ],
+      'docs',
+    );
+
+    expect(result).toEqual({ status: 'rolled-back', cause });
+    expect(tauriMocks.rename.mock.calls).toEqual([
+      ['/work/a.md', '/work/docs/a.md'],
+      ['/work/b.md', '/work/docs/b.md'],
+      ['/work/c.md', '/work/docs/c.md'],
+      ['/work/docs/b.md', '/work/b.md'],
+      ['/work/docs/a.md', '/work/a.md'],
+    ]);
+  });
+
+  it('reports completed, recovered, and unrecovered moves when rollback fails', async () => {
+    const cause = new Error('disk failure');
+    const rollbackFailure = new Error('rollback failure');
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    tauriMocks.rename
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(cause)
+      .mockRejectedValueOnce(rollbackFailure)
+      .mockResolvedValueOnce(undefined);
+
+    const result = await moveWorkspaceEntries(
+      '/work',
+      [
+        { path: '/work/a.md', isDirectory: false },
+        { path: '/work/b.md', isDirectory: false },
+        { path: '/work/c.md', isDirectory: false },
+      ],
+      'docs',
+    );
+
+    expect(result).toEqual({
+      status: 'partial',
+      completed: [
+        { path: '/work/a.md', isDirectory: false, newPath: '/work/docs/a.md' },
+        { path: '/work/b.md', isDirectory: false, newPath: '/work/docs/b.md' },
+      ],
+      recovered: [{ path: '/work/a.md', isDirectory: false, newPath: '/work/docs/a.md' }],
+      unrecovered: [{ path: '/work/b.md', isDirectory: false, newPath: '/work/docs/b.md' }],
+      cause,
+    });
+    expect(report).toHaveBeenCalledWith(
+      'Failed to roll back workspace move /work/docs/b.md -> /work/b.md',
+      rollbackFailure,
+    );
+  });
+
+  it('returns rolled-back when the destination becomes occupied after preflight', async () => {
+    const cause = new Error('destination occupied');
+    tauriMocks.rename.mockRejectedValueOnce(cause);
+
+    await expect(
+      moveWorkspaceEntries('/work', [{ path: '/work/a.md', isDirectory: false }], 'docs'),
+    ).resolves.toEqual({ status: 'rolled-back', cause });
+    expect(tauriMocks.exists).toHaveBeenCalledWith('/work/docs/a.md');
+    expect(tauriMocks.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks invalid destinations before moving anything', async () => {
     await expect(moveWorkspaceEntries('/work', [], '../outside')).rejects.toThrow(
       'Invalid destination',
     );
@@ -143,7 +245,7 @@ describe('workspace', () => {
   it('handles root moves and rejects recursive, duplicate, and occupied targets', async () => {
     await expect(
       moveWorkspaceEntries('/work', [{ path: '/work/a.md', isDirectory: false }], '.'),
-    ).resolves.toEqual({ moved: [], error: null });
+    ).resolves.toEqual({ status: 'committed', moves: [] });
     await expect(
       moveWorkspaceEntries('/work', [{ path: '/work/docs', isDirectory: true }], 'docs/nested'),
     ).rejects.toThrow('inside itself');

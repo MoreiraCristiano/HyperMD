@@ -592,6 +592,32 @@
   cursor: pointer;
 }
 
+.progress-toast {
+  position: fixed;
+  z-index: 19;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(480px, calc(100vw - 36px));
+  border: 1px solid var(--tone-454543);
+  border-radius: 8px;
+  padding: 10px 13px;
+  background: var(--tone-242422);
+  color: var(--tone-d7d7d3);
+  font-size: 12px;
+}
+
+.progress-toast button {
+  border: 1px solid var(--tone-565653);
+  border-radius: 5px;
+  padding: 3px 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--tone-3a3a38) transparent;

@@ -3,21 +3,62 @@ import {
   activeTab,
   documentManager,
   type EditorApi,
+  type ImageReferenceProgress,
+  type ImageReferenceFailure,
   type StoredSelection,
 } from '@/features/documents';
-import { isInsideWorkspace, pathName, sidebarActions, sidebarState } from '@/features/workspace';
+import {
+  isInsideWorkspace,
+  pathName,
+  planWorkspaceEntryRename,
+  renameWorkspaceEntry,
+  sidebarActions,
+  sidebarState,
+  type WorkspaceFileType,
+} from '@/features/workspace';
 import { chooseMarkdownFile } from '@/platform/tauri/files';
+import { conditionalRenameFile, readFileRevision } from '@/platform/tauri/atomicWrite';
 import { closeWindow } from '@/platform/tauri/window';
+import { isImagePath } from '@/shared/utils/imageTypes';
 import { zoomActions } from './components/titlebar/zoom';
 import { appCommands, type AppCommandId } from './commands';
 
 type AppControllerOptions = {
   setBusy: (busy: boolean) => void;
   setError: (message: string | null) => void;
+  setRenameProgress: (progress: ImageReferenceProgress | null) => void;
   openTablePicker: () => void;
 };
 
+export type WorkspaceImageRenameResult =
+  | { status: 'committed'; newPath: string; documents: string[] }
+  | { status: 'rolled-back'; failure: ImageReferenceFailure }
+  | {
+      status: 'partial';
+      failure: ImageReferenceFailure;
+      imageLocation: 'source' | 'destination';
+      imagePath: string;
+      completed: string[];
+      recovered: string[];
+      documentsAtSource: string[];
+      documentsAtDestination: string[];
+      rollbackFailures: Array<{ path: string; failure: ImageReferenceFailure }>;
+    };
+
+function operationError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
+}
+
+function failureMessage(failure: ImageReferenceFailure): string {
+  return failure.kind === 'conflict'
+    ? `Document conflict: ${failure.path} (${failure.conflict}).`
+    : `${failure.path}: ${failure.message}`;
+}
+
 export function createAppController(options: AppControllerOptions) {
+  let renameAbortController: AbortController | null = null;
+  let renameCancelable = false;
+
   function showError(message: string): void {
     options.setError(message);
   }
@@ -81,6 +122,187 @@ export function createAppController(options: AppControllerOptions) {
     }
   }
 
+  async function renameEntry(
+    oldPath: string,
+    requestedName: string,
+    isDirectory: boolean,
+    fileType: WorkspaceFileType | null,
+  ): Promise<string> {
+    const root = get(sidebarState).workspacePath;
+    if (!root) throw new Error('No workspace is open.');
+    if (!isDirectory && fileType === 'image' && isImagePath(oldPath)) {
+      const result = await renameImageEntry(root, oldPath, requestedName, fileType);
+      if (result.status === 'committed') return result.newPath;
+      if (result.status === 'rolled-back') {
+        throw new Error(
+          `Could not rename the image. All changes were restored. ${failureMessage(result.failure)}`,
+        );
+      }
+      const inconsistentDocuments =
+        result.imageLocation === 'source'
+          ? result.documentsAtDestination
+          : result.documentsAtSource;
+      const paths = [
+        ...(result.imageLocation === 'destination' ? [result.imagePath] : []),
+        ...inconsistentDocuments,
+        ...result.rollbackFailures.map(({ path }) => path),
+      ].filter(Boolean);
+      throw new Error(
+        `Image rename was partially recovered. ${failureMessage(result.failure)} Image: ${result.imagePath}. Updated: ${result.completed.join(', ') || 'none'}. Recovered: ${result.recovered.join(', ') || 'none'}. Manual intervention: ${[...new Set(paths)].join(', ') || 'none'}.`,
+      );
+    }
+    const newPath = await renameWorkspaceEntry(root, oldPath, requestedName, isDirectory, fileType);
+    await documentManager.renamePath(oldPath, newPath, isDirectory);
+    return newPath;
+  }
+
+  async function renameImageEntry(
+    root: string,
+    oldPath: string,
+    requestedName: string,
+    fileType: WorkspaceFileType,
+  ): Promise<WorkspaceImageRenameResult> {
+    const workspacePlan = await planWorkspaceEntryRename(
+      root,
+      oldPath,
+      requestedName,
+      false,
+      fileType,
+    );
+    if (workspacePlan.newPath === oldPath) {
+      return { status: 'committed', newPath: oldPath, documents: [] };
+    }
+    const imageRead = await readFileRevision(oldPath);
+    if (imageRead.status === 'io-error') throw new Error(imageRead.message);
+    const imageRevision = imageRead.revision;
+    const abortController = new AbortController();
+    renameAbortController = abortController;
+    renameCancelable = true;
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      const referencePlan = await documentManager.planWorkspaceImageRename(
+        root,
+        oldPath,
+        workspacePlan.newPath,
+        {
+          signal: abortController.signal,
+          onProgress: (progress) => {
+            renameCancelable = progress.cancelable;
+            options.setRenameProgress(progress);
+          },
+        },
+      );
+      renameCancelable = false;
+      options.setRenameProgress({
+        phase: 'commit',
+        completed: 0,
+        total: referencePlan.documents.length + 1,
+        cancelable: false,
+      });
+      const imageCommit = await conditionalRenameFile(
+        oldPath,
+        workspacePlan.newPath,
+        imageRevision,
+      );
+      if (imageCommit.status === 'conflict') {
+        throw new Error(
+          `Image rename conflict at ${imageCommit.path}: ${imageCommit.kind}. No Markdown files were changed.`,
+        );
+      }
+      if (imageCommit.status === 'io-error') throw new Error(imageCommit.message);
+      const writeResult = await documentManager.writeWorkspaceImageRename(referencePlan, {
+        onProgress: (progress) => options.setRenameProgress(progress),
+      });
+      if (writeResult.status === 'committed') {
+        documentManager.renamePathOnly(oldPath, workspacePlan.newPath, false);
+        await documentManager.reconcileWorkspaceImageRename(referencePlan, writeResult.completed);
+        return {
+          status: 'committed',
+          newPath: workspacePlan.newPath,
+          documents: writeResult.completed,
+        };
+      }
+
+      const rollbackFailures =
+        writeResult.status === 'partial' ? [...writeResult.rollbackFailures] : [];
+      let imageLocation: 'source' | 'destination' = 'source';
+      try {
+        const imageRollback = await conditionalRenameFile(
+          workspacePlan.newPath,
+          oldPath,
+          imageRevision,
+        );
+        if (imageRollback.status !== 'success') {
+          imageLocation = 'destination';
+          rollbackFailures.push({
+            path:
+              imageRollback.status === 'conflict' && imageRollback.path === 'destination'
+                ? oldPath
+                : workspacePlan.newPath,
+            failure:
+              imageRollback.status === 'conflict'
+                ? {
+                    kind: 'conflict',
+                    path: imageRollback.path === 'destination' ? oldPath : workspacePlan.newPath,
+                    conflict: imageRollback.kind,
+                  }
+                : {
+                    kind: 'io-error',
+                    path: workspacePlan.newPath,
+                    operation: imageRollback.operation,
+                    message: imageRollback.message,
+                  },
+          });
+        }
+      } catch (cause) {
+        imageLocation = 'destination';
+        rollbackFailures.push({
+          path: workspacePlan.newPath,
+          failure: {
+            kind: 'io-error',
+            path: workspacePlan.newPath,
+            operation: 'rename-image-rollback',
+            message: operationError(cause).message,
+          },
+        });
+      }
+      const documentsAtDestination =
+        writeResult.status === 'partial' ? writeResult.unrecovered : [];
+      const destinationSet = new Set(documentsAtDestination);
+      const documentsAtSource = referencePlan.documents
+        .map(({ path }) => path)
+        .filter((path) => !destinationSet.has(path));
+      await documentManager.reconcileWorkspaceImageRename(referencePlan, documentsAtDestination);
+      if (imageLocation === 'destination') {
+        documentManager.renamePathOnly(oldPath, workspacePlan.newPath, false);
+      }
+      if (writeResult.status === 'rolled-back' && imageLocation === 'source') {
+        return { status: 'rolled-back', failure: writeResult.failure };
+      }
+      return {
+        status: 'partial',
+        failure: writeResult.failure,
+        imageLocation,
+        imagePath: imageLocation === 'source' ? oldPath : workspacePlan.newPath,
+        completed: writeResult.completed,
+        recovered: writeResult.recovered,
+        documentsAtSource,
+        documentsAtDestination,
+        rollbackFailures,
+      };
+    } finally {
+      if (renameAbortController === abortController) renameAbortController = null;
+      renameCancelable = false;
+      options.setRenameProgress(null);
+      options.setBusy(false);
+    }
+  }
+
+  function cancelImageRename(): void {
+    if (renameCancelable) renameAbortController?.abort();
+  }
+
   async function renameWorkspacePath(
     oldPath: string,
     newPath: string,
@@ -135,12 +357,15 @@ export function createAppController(options: AppControllerOptions) {
 
   return {
     changeWorkspace,
+    cancelImageRename,
     commandEnabled,
     dropWorkspaceImage,
     editorReady,
     executeCommand,
     openDocumentAt,
     pasteImage,
+    renameEntry,
+    renameImageEntry,
     renameWorkspacePath,
     showError,
   };

@@ -33,9 +33,23 @@ export type WorkspaceMove = WorkspaceEntryRef & {
   newPath: string;
 };
 
-export type WorkspaceMoveBatchResult = {
-  moved: WorkspaceMove[];
-  error: unknown | null;
+export type WorkspaceMoveResult =
+  | { status: 'committed'; moves: WorkspaceMove[] }
+  | { status: 'rolled-back'; cause: Error }
+  | {
+      status: 'partial';
+      completed: WorkspaceMove[];
+      recovered: WorkspaceMove[];
+      unrecovered: WorkspaceMove[];
+      cause: Error;
+    };
+
+export type WorkspaceRenamePlan = {
+  root: string;
+  oldPath: string;
+  newPath: string;
+  isDirectory: boolean;
+  fileType: WorkspaceFileType | null;
 };
 
 export async function chooseWorkspace(): Promise<string | null> {
@@ -162,13 +176,13 @@ export async function createWorkspaceFolder(
   return path;
 }
 
-export async function renameWorkspaceEntry(
+export async function planWorkspaceEntryRename(
   root: string,
   oldPath: string,
   requestedName: string,
   isDirectory: boolean,
   fileType: WorkspaceFileType | null,
-): Promise<string> {
+): Promise<WorkspaceRenamePlan> {
   assertInsideWorkspace(root, oldPath);
   let name = validateEntryName(requestedName);
   if (!isDirectory && fileType === 'markdown' && !name.toLowerCase().endsWith('.md')) name += '.md';
@@ -185,8 +199,36 @@ export async function renameWorkspaceEntry(
   if (normalized(newPath) !== normalized(oldPath) && (await exists(newPath))) {
     throw new Error('An item with this name already exists.');
   }
-  await rename(oldPath, newPath);
-  return newPath;
+  return { root, oldPath, newPath, isDirectory, fileType };
+}
+
+export async function commitWorkspaceEntryRename(plan: WorkspaceRenamePlan): Promise<void> {
+  assertInsideWorkspace(plan.root, plan.oldPath);
+  assertInsideWorkspace(plan.root, plan.newPath);
+  if (plan.newPath === plan.oldPath) return;
+  if (normalized(plan.newPath) !== normalized(plan.oldPath) && (await exists(plan.newPath))) {
+    throw new Error('An item with this name already exists.');
+  }
+  await rename(plan.oldPath, plan.newPath);
+}
+
+export async function rollbackWorkspaceEntryRename(plan: WorkspaceRenamePlan): Promise<void> {
+  assertInsideWorkspace(plan.root, plan.oldPath);
+  assertInsideWorkspace(plan.root, plan.newPath);
+  if (plan.newPath === plan.oldPath) return;
+  await rename(plan.newPath, plan.oldPath);
+}
+
+export async function renameWorkspaceEntry(
+  root: string,
+  oldPath: string,
+  requestedName: string,
+  isDirectory: boolean,
+  fileType: WorkspaceFileType | null,
+): Promise<string> {
+  const plan = await planWorkspaceEntryRename(root, oldPath, requestedName, isDirectory, fileType);
+  await commitWorkspaceEntryRename(plan);
+  return plan.newPath;
 }
 
 export async function moveWorkspaceEntry(
@@ -199,15 +241,19 @@ export async function moveWorkspaceEntry(
     [{ path: oldPath, isDirectory: false }],
     requestedDirectory,
   );
-  if (result.error) throw result.error;
-  return result.moved[0]?.newPath ?? oldPath;
+  if (result.status !== 'committed') throw result.cause;
+  return result.moves[0]?.newPath ?? oldPath;
+}
+
+function moveError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }
 
 export async function moveWorkspaceEntries(
   root: string,
   entries: readonly WorkspaceEntryRef[],
   requestedDirectory: string,
-): Promise<WorkspaceMoveBatchResult> {
+): Promise<WorkspaceMoveResult> {
   const relativeDirectory = requestedDirectory.trim().replace(/\\/g, '/');
   if (relativeDirectory.split('/').some((part) => part === '..')) {
     throw new Error('Invalid destination. Do not use “..”.');
@@ -240,16 +286,35 @@ export async function moveWorkspaceEntries(
     plans.push({ ...entry, newPath: target });
   }
 
-  const moved: WorkspaceMove[] = [];
+  const completed: WorkspaceMove[] = [];
   for (const plan of plans) {
     try {
       await rename(plan.path, plan.newPath);
-      moved.push(plan);
-    } catch (error) {
-      return { moved, error };
+      completed.push(plan);
+    } catch (cause) {
+      const rollbackFailures = new Set<WorkspaceMove>();
+      for (const completedMove of [...completed].reverse()) {
+        try {
+          await rename(completedMove.newPath, completedMove.path);
+        } catch (rollbackCause) {
+          rollbackFailures.add(completedMove);
+          console.error(
+            `Failed to roll back workspace move ${completedMove.newPath} -> ${completedMove.path}`,
+            rollbackCause,
+          );
+        }
+      }
+      if (!rollbackFailures.size) return { status: 'rolled-back', cause: moveError(cause) };
+      return {
+        status: 'partial',
+        completed,
+        recovered: completed.filter((move) => !rollbackFailures.has(move)),
+        unrecovered: completed.filter((move) => rollbackFailures.has(move)),
+        cause: moveError(cause),
+      };
     }
   }
-  return { moved, error: null };
+  return { status: 'committed', moves: plans };
 }
 
 export async function removeWorkspaceEntry(

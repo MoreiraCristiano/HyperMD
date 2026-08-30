@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { tauriMocks } from '@/test/tauriMocks';
-import { chooseMarkdownFile, chooseSavePath, fileName, readMarkdown, writeMarkdown } from './files';
+import {
+  chooseMarkdownFile,
+  chooseSavePath,
+  fileName,
+  readMarkdown,
+  readMarkdownWithRevision,
+  writeMarkdown,
+  writeMarkdownConditionally,
+} from './files';
 
 describe('files', () => {
   beforeEach(() => {
@@ -29,7 +37,37 @@ describe('files', () => {
     tauriMocks.readTextFile.mockResolvedValue('a\r\nb\rc');
     await expect(readMarkdown('/a.md')).resolves.toBe('a\nb\nc');
     await writeMarkdown('/a.md', 'a\r\nb\rc');
-    expect(tauriMocks.writeTextFile).toHaveBeenCalledWith('/a.md', 'a\nb\nc');
+    expect(tauriMocks.invoke).toHaveBeenCalledWith('atomic_write_text', {
+      path: '/a.md',
+      contents: 'a\nb\nc',
+      baseDir: undefined,
+    });
+  });
+
+  it('keeps raw-byte revisions and structured conditional-write conflicts', async () => {
+    tauriMocks.readTextFile.mockResolvedValue('a\r\nb');
+    await expect(readMarkdownWithRevision('/a.md')).resolves.toEqual({
+      status: 'success',
+      contents: 'a\r\nb',
+      revision: 'revision:a\r\nb',
+    });
+    tauriMocks.conditionalAtomicWriteTextFile.mockResolvedValue({
+      status: 'conflict',
+      kind: 'changed',
+      actualRevision: 'external',
+    });
+
+    await expect(
+      writeMarkdownConditionally('/a.md', 'editor\r\ntext', {
+        state: 'revision',
+        revision: 'known',
+      }),
+    ).resolves.toEqual({ status: 'conflict', kind: 'changed', actualRevision: 'external' });
+    expect(tauriMocks.conditionalAtomicWriteTextFile).toHaveBeenCalledWith(
+      '/a.md',
+      'editor\ntext',
+      { state: 'revision', revision: 'known' },
+    );
   });
 
   it('derives safe display names', () => {

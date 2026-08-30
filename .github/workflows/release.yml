@@ -85,6 +85,7 @@ jobs:
 
   linux:
     name: Build Linux AppImage
+    if: ${{ false }}
     needs: validate
     runs-on: ubuntu-22.04
 
@@ -133,9 +134,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    needs:
-      - windows
-      - linux
+    needs: windows
     runs-on: ubuntu-22.04
 
     steps:
@@ -153,14 +152,13 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           mapfile -d '' installers < <(find release-assets -type f -name '*-setup.exe' -print0)
-          mapfile -d '' appimages < <(find release-assets -type f -name '*.AppImage' -print0)
 
-          if [[ ${#installers[@]} -ne 1 || ${#appimages[@]} -ne 1 ]]; then
-            echo "Expected one Windows installer and one AppImage." >&2
+          if [[ ${#installers[@]} -ne 1 ]]; then
+            echo "Expected one Windows installer." >&2
             exit 1
           fi
 
-          assets=("${installers[0]}" "${appimages[0]}")
+          assets=("${installers[0]}")
 
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${assets[@]}" \
