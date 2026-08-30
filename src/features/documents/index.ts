@@ -1,5 +1,4 @@
 export { documentManager, DocumentManager } from './documentManager';
-export { default as Editor } from './editor/Editor.svelte';
 export { default as TablePicker } from './editor/TablePicker.svelte';
 export type { EditorApi, EditorCommand, StoredSelection } from './documentTypes';
 export { activeTab, isMarkdownTab, tabsState } from './tabs/tabStore';

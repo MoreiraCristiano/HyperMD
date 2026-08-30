@@ -84,6 +84,7 @@ describe('App', () => {
     vi.spyOn(documentManager, 'open').mockRejectedValue(new Error('cannot open'));
     tauriMocks.dialogOpen.mockResolvedValue('/work/a.md');
     render(App);
+    await waitFor(() => expect(closeHandler).toBeDefined());
     await fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
     const toast = await screen.findByRole('button', { name: 'Dismiss error' });
     expect(toast).toHaveTextContent('cannot open');

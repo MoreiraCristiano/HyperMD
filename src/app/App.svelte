@@ -3,7 +3,6 @@
   import {
     activeTab,
     documentManager,
-    Editor,
     ImageViewer,
     TablePicker,
   } from '@/features/documents';
@@ -17,6 +16,12 @@
   import { createAppController } from './appController';
   import { setupAppLifecycle } from './lifecycle';
   import { createAppKeydownHandler } from './keyboard';
+
+  const editorComponent = import('@/features/documents/editor/Editor.svelte').then(
+    ({ default: component }) => component,
+  );
+  let markEditorReady!: () => void;
+  const editorReadyPromise = new Promise<void>((resolve) => (markEditorReady = resolve));
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -47,7 +52,22 @@
     activateTabPosition: (position) => documentManager.activatePosition(position),
   });
 
-  onMount(() => setupAppLifecycle({ onError: showError, onKeydown: handleKeydown }));
+  function handleEditorReady(editor: Parameters<typeof editorReady>[0]) {
+    editorReady(editor);
+    markEditorReady();
+  }
+
+  onMount(() => {
+    let mounted = true;
+    let cleanup: (() => void) | undefined;
+    void editorReadyPromise.then(() => {
+      if (mounted) cleanup = setupAppLifecycle({ onError: showError, onKeydown: handleKeydown });
+    });
+    return () => {
+      mounted = false;
+      cleanup?.();
+    };
+  });
 </script>
 
 <svelte:head><title>HyperMD</title></svelte:head>
@@ -78,12 +98,15 @@
       <main class="editor-pane">
         <div class="editor-scroll content-view" class:hidden={$activeTab?.type !== 'markdown'}>
           <section class="document-shell">
-            <Editor
-              onReady={editorReady}
-              onTransaction={(state, changed) => documentManager.handleTransaction(state, changed)}
-              onImagePaste={pasteImage}
-              onWorkspaceImageDrop={dropWorkspaceImage}
-            />
+            {#await editorComponent then Editor}
+              <Editor
+                onReady={handleEditorReady}
+                onTransaction={(state, changed) =>
+                  documentManager.handleTransaction(state, changed)}
+                onImagePaste={pasteImage}
+                onWorkspaceImageDrop={dropWorkspaceImage}
+              />
+            {/await}
           </section>
         </div>
         {#if $activeTab?.type === 'image'}
