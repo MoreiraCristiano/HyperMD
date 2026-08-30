@@ -5,18 +5,13 @@
   import { dialogService } from '@/shared/ui/dialogs';
   import { sidebarState, workspacePickerRequest, workspaceRefreshRequest } from '../workspaceStore';
   import {
-    chooseWorkspace,
-    createMarkdownFile,
-    createWorkspaceFolder,
-    moveWorkspaceEntries,
+    createExplorerOperations,
     pathName,
-    readWorkspaceDirectory,
-    relativeWorkspacePath,
-    removeWorkspaceEntry,
-    renameWorkspaceEntry,
     type FileNode,
+    type ExplorerOperationError,
     type WorkspaceMove,
-  } from '../workspaceService';
+    type WorkspaceFileType,
+  } from '../explorerOperations';
   import {
     canDropInto,
     compareNodes,
@@ -40,6 +35,12 @@
     onChangeWorkspace: (path: string) => Promise<boolean>;
     onBeforeDelete: (path: string, isDirectory: boolean) => Promise<boolean>;
     onDeleted: (path: string, isDirectory: boolean) => void;
+    onRenameEntry: (
+      oldPath: string,
+      requestedName: string,
+      isDirectory: boolean,
+      fileType: WorkspaceFileType | null,
+    ) => Promise<string>;
     onRenamed: (oldPath: string, newPath: string, isDirectory: boolean) => Promise<void>;
     onError: (message: string) => void;
   };
@@ -81,9 +82,16 @@
     onChangeWorkspace,
     onBeforeDelete,
     onDeleted,
+    onRenameEntry,
     onRenamed,
     onError,
   }: Props = $props();
+  const operations = createExplorerOperations({
+    renameEntry: (...args) => onRenameEntry(...args),
+    beforeDelete: (...args) => onBeforeDelete(...args),
+    deleted: (...args) => onDeleted(...args),
+    changeWorkspace: (...args) => onChangeWorkspace(...args),
+  });
   let entries = $state<FileNode[]>([]);
   let selectedPaths = $state<string[]>([]);
   let selectionAnchorPath = $state<string | null>(null);
@@ -100,32 +108,27 @@
   let selectedPathSet = $derived(new Set(selectedPaths));
   let draggedPathSet = $derived(new Set(draggedPaths));
 
-  async function run(action: () => Promise<void>) {
-    try {
-      await action();
-    } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
   async function selectWorkspace() {
-    const path = await chooseWorkspace();
-    if (!path) return;
-    await onChangeWorkspace(path);
+    const result = await operations.chooseWorkspace();
+    if (!result.ok) {
+      onError(result.error.message);
+      return;
+    }
   }
 
-  async function loadRoot() {
+  async function loadRoot(reportError = true): Promise<ExplorerOperationError | null> {
     const root = $sidebarState.workspacePath;
-    if (!root) return;
+    if (!root) return null;
     loading = true;
-    try {
-      entries = await readWorkspaceDirectory(root, root);
+    const result = await operations.refresh(root, root);
+    if (result.ok) {
+      entries = result.value;
       clearSelection();
-    } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      loading = false;
+    } else {
+      if (reportError) onError(result.error.message);
     }
+    loading = false;
+    return result.ok ? null : result.error;
   }
 
   async function toggleDirectory(node: FileNode) {
@@ -141,10 +144,13 @@
     const root = $sidebarState.workspacePath;
     if (!root) return;
     node.loading = true;
-    await run(async () => {
-      node.children = await readWorkspaceDirectory(root, node.path);
+    const result = await operations.refresh(root, node.path);
+    if (result.ok) {
+      node.children = result.value;
       node.loaded = true;
-    });
+    } else {
+      onError(result.error.message);
+    }
     node.loading = false;
   }
 
@@ -210,26 +216,81 @@
   function rewriteSelectionAfterMoves(moves: readonly WorkspaceMove[]) {
     selectedPaths = selectedPaths.map((path) => rewriteMovedPath(path, moves));
     if (selectionAnchorPath) selectionAnchorPath = rewriteMovedPath(selectionAnchorPath, moves);
+    if (selectedDirectory) selectedDirectory = rewriteMovedPath(selectedDirectory, moves);
+  }
+
+  function affectedMoveDirectories(moves: readonly WorkspaceMove[]): string[] {
+    const directories: string[] = [];
+    for (const move of moves) {
+      for (const directory of [parentPath(move.path), parentPath(move.newPath)]) {
+        if (!directories.some((candidate) => samePath(candidate, directory))) {
+          directories.push(directory);
+        }
+      }
+    }
+    return directories.sort(
+      (left, right) => left.split(/[\\/]/).length - right.split(/[\\/]/).length,
+    );
+  }
+
+  async function applyCommittedMoves(moves: readonly WorkspaceMove[], destination: string) {
+    for (const move of moves) applyTreeMove(move.path, move.newPath, destination);
+    for (const move of moves) await onRenamed(move.path, move.newPath, move.isDirectory);
+    rewriteSelectionAfterMoves(moves);
+    selectedDirectory = destination;
+  }
+
+  async function reconcilePartialMove(
+    error: Extract<ExplorerOperationError, { kind: 'move-partial' }>,
+  ): Promise<string> {
+    const reconciliationFailures: string[] = [];
+    for (const directory of affectedMoveDirectories(error.completed)) {
+      const refreshError = await refreshDirectory(directory, true, false);
+      if (refreshError) {
+        reconciliationFailures.push(directory);
+        console.error(
+          `Failed to refresh workspace directory after partial move: ${directory}`,
+          refreshError.cause,
+        );
+      }
+    }
+    rewriteSelectionAfterMoves(error.unrecovered);
+    for (const move of error.unrecovered) {
+      try {
+        await onRenamed(move.path, move.newPath, move.isDirectory);
+      } catch (cause) {
+        reconciliationFailures.push(move.newPath);
+        console.error(`Failed to reconcile open tabs after partial move: ${move.newPath}`, cause);
+      }
+    }
+    const items = error.unrecovered.map((move) => `${move.path} → ${move.newPath}`).join(', ');
+    const reconciliationMessage = reconciliationFailures.length
+      ? ` Reconciliation also failed for: ${reconciliationFailures.join(', ')}.`
+      : '';
+    return `Move failed: ${error.cause.message}. Rollback incomplete; items not recovered: ${items}.${reconciliationMessage}`;
   }
 
   async function moveNodesToDirectory(nodes: readonly FileNode[], destination: string) {
     const root = $sidebarState.workspacePath;
     if (!root || !nodes.length) return;
-    await run(async () => {
-      const requestedDirectory = relativeWorkspacePath(root, destination) || '.';
-      const result = await moveWorkspaceEntries(
-        root,
-        nodes.map((node) => ({ path: node.path, isDirectory: node.isDirectory })),
-        requestedDirectory,
-      );
-      for (const move of result.moved) {
-        applyTreeMove(move.path, move.newPath, destination);
-        await onRenamed(move.path, move.newPath, move.isDirectory);
+    const result = await operations.move(
+      root,
+      nodes.map((node) => ({ path: node.path, isDirectory: node.isDirectory })),
+      destination,
+    );
+    if (result.ok) {
+      try {
+        await applyCommittedMoves(result.value, destination);
+      } catch (cause) {
+        onError(cause instanceof Error ? cause.message : String(cause));
       }
-      rewriteSelectionAfterMoves(result.moved);
-      selectedDirectory = destination;
-      if (result.error) throw result.error;
-    });
+      return;
+    }
+    if (result.error.kind === 'move-partial') {
+      onError(await reconcilePartialMove(result.error));
+      return;
+    }
+    onError(result.error.message);
   }
 
   function beginDrag(node: FileNode, event: DragEvent) {
@@ -306,32 +367,43 @@
     if (root && valid) void moveNodesToDirectory(sources, root);
   }
 
-  async function refreshDirectory(path: string, preserveExpanded = false) {
+  async function refreshDirectory(
+    path: string,
+    preserveExpanded = false,
+    reportError = true,
+  ): Promise<ExplorerOperationError | null> {
     const root = $sidebarState.workspacePath;
-    if (!root) return;
+    if (!root) return null;
     if (path === root) {
       if (!preserveExpanded) {
-        await loadRoot();
-        return;
+        return loadRoot(reportError);
       }
       loading = true;
-      try {
-        entries = preserveDirectoryState(entries, await readWorkspaceDirectory(root, root));
+      const result = await operations.refresh(root, root);
+      if (result.ok) {
+        entries = preserveDirectoryState(entries, result.value);
         clearSelection();
-      } finally {
-        loading = false;
+      } else if (reportError) {
+        onError(result.error.message);
       }
-      return;
+      loading = false;
+      return result.ok ? null : result.error;
     }
     const node = findDirectory(entries, path);
     if (!node) {
-      await loadRoot();
-      return;
+      return loadRoot(reportError);
     }
-    const refreshed = await readWorkspaceDirectory(root, path);
-    node.children = preserveExpanded ? preserveDirectoryState(node.children, refreshed) : refreshed;
+    const result = await operations.refresh(root, path);
+    if (!result.ok) {
+      if (reportError) onError(result.error.message);
+      return result.error;
+    }
+    node.children = preserveExpanded
+      ? preserveDirectoryState(node.children, result.value)
+      : result.value;
     node.loaded = true;
     node.expanded = true;
+    return null;
   }
 
   function operationDirectory(): string | null {
@@ -351,11 +423,17 @@
       required: true,
     });
     if (!name) return;
-    await run(async () => {
-      const path = await createMarkdownFile(root, parent, name);
-      await refreshDirectory(parent, true);
-      await onOpenFile(path);
-    });
+    const result = await operations.createFile(root, parent, name);
+    if (!result.ok) {
+      onError(result.error.message);
+      return;
+    }
+    if (await refreshDirectory(parent, true)) return;
+    try {
+      await onOpenFile(result.value);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
 
   async function createFolder() {
@@ -370,10 +448,12 @@
       required: true,
     });
     if (!name) return;
-    await run(async () => {
-      await createWorkspaceFolder(root, parent, name);
-      await refreshDirectory(parent, true);
-    });
+    const result = await operations.createFolder(root, parent, name);
+    if (!result.ok) {
+      onError(result.error.message);
+      return;
+    }
+    await refreshDirectory(parent, true);
   }
 
   async function renameSelected() {
@@ -389,15 +469,16 @@
       required: true,
     });
     if (!name || name === node.name) return;
-    await run(async () => {
-      const oldPath = node.path;
-      const newPath = await renameWorkspaceEntry(root, oldPath, name, node.isDirectory, node.type);
-      const move = { path: oldPath, newPath, isDirectory: node.isDirectory };
-      applyTreeMove(oldPath, newPath, parentPath(newPath));
-      rewriteSelectionAfterMoves([move]);
-      selectedDirectory = node.isDirectory ? newPath : parentPath(newPath);
-      await onRenamed(oldPath, newPath, node.isDirectory);
-    });
+    const oldPath = node.path;
+    const result = await operations.rename(oldPath, name, node.isDirectory, node.type);
+    if (!result.ok) {
+      onError(result.error.message);
+      return;
+    }
+    const move = { path: oldPath, newPath: result.value, isDirectory: node.isDirectory };
+    applyTreeMove(oldPath, result.value, parentPath(result.value));
+    rewriteSelectionAfterMoves([move]);
+    selectedDirectory = node.isDirectory ? result.value : parentPath(result.value);
   }
 
   async function moveSelected() {
@@ -445,20 +526,20 @@
       tone: 'danger',
     });
     if (!confirmed) return;
-    for (const node of nodes) {
-      if (!(await onBeforeDelete(node.path, node.isDirectory))) return;
+    const result = await operations.delete(root, nodes);
+    for (const node of result.value?.deleted ?? []) {
+      detachNode(entries, node.path);
+      selectedPaths = selectedPaths.filter(
+        (path) => !samePath(path, node.path) && !isDescendantPath(node.path, path),
+      );
     }
-    await run(async () => {
-      for (const node of nodes) {
-        await removeWorkspaceEntry(root, node.path, node.isDirectory);
-        detachNode(entries, node.path);
-        selectedPaths = selectedPaths.filter(
-          (path) => !samePath(path, node.path) && !isDescendantPath(node.path, path),
-        );
-        onDeleted(node.path, node.isDirectory);
-      }
+    if (!result.ok) {
+      onError(result.error.message);
+      return;
+    }
+    if (result.value.status === 'committed') {
       clearSelection();
-    });
+    }
   }
 
   function activateNode(node: FileNode, event: MouseEvent) {
