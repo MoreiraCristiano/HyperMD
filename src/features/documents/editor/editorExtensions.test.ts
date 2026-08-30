@@ -490,13 +490,41 @@ describe('editor extensions', () => {
     expect(instance.view.dom.querySelector('.code-language-trigger')).toHaveTextContent(
       'JavaScript',
     );
+    const copyButton = instance.view.dom.querySelector<HTMLButtonElement>(
+      '[aria-label="Copy code"]',
+    )!;
+    expect(copyButton).not.toBeNull();
+    await fireEvent.click(copyButton);
+    await waitFor(() =>
+      expect(tauriMocks.clipboardWriteText).toHaveBeenLastCalledWith('const value = 1;'),
+    );
+    expect(copyButton).toHaveAccessibleName('Code copied');
+    expect(copyButton).toHaveTextContent('Copied');
     instance.commands.setContent('<pre><code class="language-python">print(1)</code></pre>');
     await waitFor(() =>
       expect(instance.view.dom.querySelector('[aria-label="Code block"]')).toHaveTextContent(
         'print(1)',
       ),
     );
+    await fireEvent.click(copyButton);
+    await waitFor(() => expect(tauriMocks.clipboardWriteText).toHaveBeenLastCalledWith('print(1)'));
     findText(instance.view, 'print');
+  });
+
+  it('reports code block clipboard failures without changing its content', async () => {
+    tauriMocks.clipboardWriteText.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    const instance = editor('<pre><code>keep me</code></pre>', [
+      StarterKit.configure({ codeBlock: false }),
+      CodeMirrorCodeBlock,
+    ]);
+    const copyButton = instance.view.dom.querySelector<HTMLButtonElement>(
+      '[aria-label="Copy code"]',
+    );
+    expect(copyButton).not.toBeNull();
+    await fireEvent.click(copyButton!);
+    await waitFor(() => expect(copyButton).toHaveAccessibleName('Copy failed'));
+    expect(copyButton).toHaveTextContent('Copy failed');
+    expect(instance.getText()).toContain('keep me');
   });
 
   it('computes minimal text changes for insertions, deletion, replacement, and equality', () => {
@@ -523,6 +551,7 @@ describe('editor extensions', () => {
       getPos: () => 0,
     } as never);
     document.body.append(block.dom);
+    const copyButton = block.dom.querySelector<HTMLButtonElement>('[aria-label="Copy code"]')!;
     expect(block.stopEvent()).toBe(true);
     expect(block.ignoreMutation()).toBe(true);
     block.setSelection(0, 1);
@@ -553,6 +582,9 @@ describe('editor extensions', () => {
       false,
     );
     block.destroy();
+    tauriMocks.clipboardWriteText.mockClear();
+    await fireEvent.click(copyButton);
+    expect(tauriMocks.clipboardWriteText).not.toHaveBeenCalled();
   });
 
   it('rejects a code block view whose document position disappeared', () => {

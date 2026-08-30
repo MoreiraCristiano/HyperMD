@@ -10,6 +10,7 @@
     "core:path:allow-dirname",
     "core:path:allow-join",
     "core:path:allow-normalize",
+    "core:resources:allow-close",
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-close",
     "core:window:allow-destroy",

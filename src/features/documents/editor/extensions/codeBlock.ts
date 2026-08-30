@@ -25,8 +25,12 @@ import { loadCodeLanguage } from '../codeblock/languages';
 import { CodeLanguageSelector } from '../codeblock/languageSelector';
 import { codeMirrorTheme } from '../codeblock/theme';
 import { findRangesInside } from '../find/findPlugin';
+import { writeText } from '@/platform/tauri/clipboard';
 
 type FindRange = { from: number; to: number; active: boolean };
+type CopyStatus = 'idle' | 'copied' | 'failed';
+
+const COPY_STATUS_DURATION = 2000;
 
 const setFindRanges = StateEffect.define<readonly FindRange[]>();
 const findRangesField = StateField.define<CodeMirrorDecorationSet>({
@@ -56,7 +60,9 @@ export class CodeMirrorBlockView implements NodeView {
   private readonly getPos: NodeViewRendererProps['getPos'];
   private readonly codeMirror: CodeMirrorEditorView;
   private readonly languageSelector: CodeLanguageSelector;
+  private readonly copyButton: HTMLButtonElement;
   private readonly language = new Compartment();
+  private copyStatusTimer: ReturnType<typeof setTimeout> | undefined;
   private updating = false;
   private languageRequest = 0;
   private destroyed = false;
@@ -119,6 +125,13 @@ export class CodeMirrorBlockView implements NodeView {
     });
     this.dom = document.createElement('div');
     this.dom.className = 'hypermd-code-block';
+    this.copyButton = document.createElement('button');
+    this.copyButton.type = 'button';
+    this.copyButton.className = 'code-copy-button';
+    this.copyButton.setAttribute('aria-live', 'polite');
+    this.copyButton.addEventListener('click', this.copyCode);
+    this.renderCopyStatus('idle');
+    this.languageSelector.dom.append(this.copyButton);
     this.dom.append(this.languageSelector.dom, this.codeMirror.dom);
     this.updateFindRanges();
     void this.updateLanguage(node.attrs.language as string | null);
@@ -170,6 +183,8 @@ export class CodeMirrorBlockView implements NodeView {
   destroy(): void {
     this.destroyed = true;
     this.languageRequest += 1;
+    if (this.copyStatusTimer !== undefined) clearTimeout(this.copyStatusTimer);
+    this.copyButton.removeEventListener('click', this.copyCode);
     this.languageSelector.destroy();
     this.codeMirror.destroy();
   }
@@ -200,6 +215,40 @@ export class CodeMirrorBlockView implements NodeView {
     const head = Math.min(transaction.doc.content.size, start + selection.head);
     transaction = transaction.setSelection(TextSelection.create(transaction.doc, anchor, head));
     this.outerView.dispatch(transaction);
+  }
+
+  private readonly copyCode = async (): Promise<void> => {
+    try {
+      await writeText(this.codeMirror.state.doc.toString());
+      if (!this.destroyed) this.showCopyStatus('copied');
+    } catch {
+      if (!this.destroyed) this.showCopyStatus('failed');
+    }
+  };
+
+  private showCopyStatus(status: Exclude<CopyStatus, 'idle'>): void {
+    if (this.copyStatusTimer !== undefined) clearTimeout(this.copyStatusTimer);
+    this.renderCopyStatus(status);
+    this.copyStatusTimer = setTimeout(() => {
+      this.copyStatusTimer = undefined;
+      if (!this.destroyed) this.renderCopyStatus('idle');
+    }, COPY_STATUS_DURATION);
+  }
+
+  private renderCopyStatus(status: CopyStatus): void {
+    const label = status === 'copied' ? 'Copied' : status === 'failed' ? 'Copy failed' : '';
+    const accessibleLabel =
+      status === 'copied' ? 'Code copied' : status === 'failed' ? label : 'Copy code';
+    this.copyButton.classList.toggle('copied', status === 'copied');
+    this.copyButton.classList.toggle('failed', status === 'failed');
+    this.copyButton.title = accessibleLabel;
+    this.copyButton.setAttribute('aria-label', accessibleLabel);
+    this.copyButton.replaceChildren(createCopyStatusIcon(status));
+    if (label) {
+      const text = document.createElement('span');
+      text.textContent = label;
+      this.copyButton.append(text);
+    }
   }
 
   private maybeEscape(unit: 'line' | 'char', direction: -1 | 1): boolean {
@@ -255,6 +304,38 @@ export class CodeMirrorBlockView implements NodeView {
     );
     queueMicrotask(() => this.codeMirror.focus());
   }
+}
+
+function createCopyStatusIcon(status: CopyStatus): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  if (status === 'copied') {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M3 8.5l3 3 7-7');
+    svg.append(path);
+  } else if (status === 'failed') {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M4 4l8 8m0-8-8 8');
+    svg.append(path);
+  } else {
+    const back = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    back.setAttribute('x', '2.5');
+    back.setAttribute('y', '2.5');
+    back.setAttribute('width', '8');
+    back.setAttribute('height', '8');
+    back.setAttribute('rx', '1');
+    const front = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    front.setAttribute('x', '5.5');
+    front.setAttribute('y', '5.5');
+    front.setAttribute('width', '8');
+    front.setAttribute('height', '8');
+    front.setAttribute('rx', '1');
+    svg.append(back, front);
+  }
+
+  return svg;
 }
 
 export function minimalChange(

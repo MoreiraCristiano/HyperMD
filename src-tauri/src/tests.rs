@@ -255,6 +255,7 @@ fn security_configuration_keeps_local_and_external_scopes_narrow() {
 
     assert!(!permission_names.contains(&"core:default"));
     assert!(!permission_names.contains(&"dialog:allow-message"));
+    assert!(permission_names.contains(&"core:resources:allow-close"));
 
     let opener = permissions
         .iter()

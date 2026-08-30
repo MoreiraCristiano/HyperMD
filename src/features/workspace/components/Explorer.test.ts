@@ -87,6 +87,59 @@ describe('Explorer', () => {
     expect(screen.queryByRole('treeitem', { name: /child.md/ })).not.toBeInTheDocument();
   });
 
+  it('navigates visible tree items with standard arrow behavior', async () => {
+    render(Explorer, props());
+    const tree = await screen.findByRole('tree', { name: 'Workspace files' });
+    const docs = await screen.findByRole('treeitem', { name: /docs/ });
+    tree.focus();
+
+    await fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    await waitFor(() => expect(docs).toHaveFocus());
+    await waitFor(() => expect(docs).toHaveAttribute('aria-selected', 'true'));
+
+    await fireEvent.keyDown(docs, { key: 'ArrowRight' });
+    const child = await screen.findByRole('treeitem', { name: /child.md/ });
+    expect(docs).toHaveAttribute('aria-expanded', 'true');
+    await fireEvent.keyDown(docs, { key: 'ArrowRight' });
+    await waitFor(() => expect(child).toHaveFocus());
+
+    await fireEvent.keyDown(child, { key: 'ArrowDown' });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    await waitFor(() => expect(image).toHaveFocus());
+    await fireEvent.keyDown(image, { key: 'ArrowUp' });
+    await waitFor(() => expect(child).toHaveFocus());
+    await fireEvent.keyDown(child, { key: 'ArrowLeft' });
+    await waitFor(() => expect(docs).toHaveFocus());
+    await fireEvent.keyDown(docs, { key: 'ArrowLeft' });
+    expect(docs).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('treeitem', { name: /child.md/ })).not.toBeInTheDocument();
+
+    await fireEvent.click(tree);
+    await fireEvent.keyDown(tree, { key: 'ArrowUp' });
+    await waitFor(() => expect(screen.getByRole('treeitem', { name: /note.md/ })).toHaveFocus());
+  });
+
+  it('replaces multi-selection during navigation and deletes the keyboard selection', async () => {
+    const handlers = props();
+    vi.spyOn(dialogService, 'confirm').mockResolvedValue(true);
+    render(Explorer, handlers);
+    const tree = await screen.findByRole('tree', { name: 'Workspace files' });
+    const note = await screen.findByRole('treeitem', { name: /note.md/ });
+    const image = screen.getByRole('treeitem', { name: /a.png/ });
+    await fireEvent.click(note, { ctrlKey: true });
+    await fireEvent.click(image, { ctrlKey: true });
+
+    await fireEvent.keyDown(image, { key: 'ArrowDown' });
+    await waitFor(() => expect(note).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(image).toHaveAttribute('aria-selected', 'false'));
+    await fireEvent.keyDown(tree, { key: 'Delete' });
+
+    await waitFor(() =>
+      expect(tauriMocks.remove).toHaveBeenCalledWith('/work/note.md', { recursive: false }),
+    );
+    expect(handlers.onDeleted).toHaveBeenCalledWith('/work/note.md', false);
+  });
+
   it('creates files and folders then refreshes', async () => {
     const handlers = props();
     const prompt = vi
@@ -320,6 +373,37 @@ describe('Explorer', () => {
     expect(transfer.effectAllowed).toBe('copyMove');
     expect(transfer.setData).toHaveBeenCalledWith(WORKSPACE_ENTRY_DRAG_TYPE, '/work/a.png');
     expect(transfer.setData).toHaveBeenCalledWith(WORKSPACE_IMAGE_DRAG_TYPE, '/work/a.png');
+  });
+
+  it('preserves expanded folders during external root refreshes', async () => {
+    let pastedImageExists = false;
+    tauriMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === '/work/docs/nested') return [file('child.md')];
+      if (path === '/work/docs') return [directory('nested')];
+      return [
+        directory('docs'),
+        file('note.md'),
+        ...(pastedImageExists ? [file('pasted-image.png')] : []),
+      ];
+    });
+    render(Explorer, props());
+
+    const docs = await screen.findByRole('treeitem', { name: /docs/ });
+    await fireEvent.click(docs);
+    const nested = await screen.findByRole('treeitem', { name: /nested/ });
+    await fireEvent.click(nested);
+    expect(await screen.findByRole('treeitem', { name: /child.md/ })).toBeInTheDocument();
+
+    pastedImageExists = true;
+    sidebarActions.refreshWorkspace('/work');
+
+    expect(await screen.findByRole('treeitem', { name: /pasted-image.png/ })).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /docs/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('treeitem', { name: /nested/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByRole('treeitem', { name: /child.md/ })).toBeInTheDocument();
   });
 
   it('awaits reference updates sequentially for multi-file moves', async () => {

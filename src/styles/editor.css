@@ -134,13 +134,50 @@
   color: var(--tone-e2e3e0);
 }
 .code-language-trigger:focus-visible,
-.code-language-search:focus-visible {
+.code-language-search:focus-visible,
+.code-copy-button:focus-visible {
   outline: 1px solid var(--tone-5f8db8);
   outline-offset: -1px;
 }
 .code-language-trigger svg {
   width: 8px;
   min-width: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+.code-copy-button {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--tone-aaafab);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.code-copy-button:hover {
+  background: var(--tone-252625);
+  color: var(--tone-e2e3e0);
+}
+.code-copy-button.copied {
+  color: var(--tone-8fc2f2);
+}
+.code-copy-button.failed {
+  color: var(--tone-d49379);
+}
+.code-copy-button svg {
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;

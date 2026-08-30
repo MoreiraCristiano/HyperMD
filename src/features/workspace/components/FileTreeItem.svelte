@@ -46,6 +46,7 @@
   class:dragging={draggedPaths.has(node.path)}
   class:drop-target={node.isDirectory && dropTargetPath === node.path}
   style:padding-left={`${7 + level * 13}px`}
+  data-tree-path={node.path}
   draggable="true"
   onclick={activate}
   ondragstart={(event) => onDragStart(node, event)}

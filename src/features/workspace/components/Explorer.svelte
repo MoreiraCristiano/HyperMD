@@ -9,6 +9,7 @@
     type WorkspaceFileType,
   } from '../explorerOperations';
   import { ExplorerCommands } from '../explorerCommands';
+  import { findNode, parentPath, samePath, visibleNodes } from '../explorerController';
   import { ExplorerDragController } from '../explorerDrag.svelte';
   import { ExplorerMoveController } from '../explorerMove.svelte';
   import { ExplorerSelection } from '../explorerSelection.svelte';
@@ -115,6 +116,7 @@
   let handledRefreshRequest = 0;
   let contextMenu = $state<ContextMenuState | null>(null);
   let contextMenuId = 0;
+  let explorerTreeElement = $state<HTMLDivElement>();
 
   async function selectWorkspace() {
     await commands.selectWorkspace();
@@ -230,6 +232,62 @@
     }
   }
 
+  function focusNode(node: FileNode): void {
+    selection.selectSingle(node);
+    if (!explorerTreeElement) return;
+    const item = Array.from(
+      explorerTreeElement.querySelectorAll<HTMLButtonElement>('.tree-item'),
+    ).find((candidate) => samePath(candidate.dataset.treePath ?? '', node.path));
+    item?.focus();
+  }
+
+  function keyboardNode(target: EventTarget | null, visible: FileNode[]): FileNode | null {
+    const focusedPath =
+      target instanceof Element
+        ? target.closest<HTMLElement>('.tree-item')?.dataset.treePath
+        : null;
+    const path = focusedPath ?? selection.anchorPath;
+    return path ? (visible.find((node) => samePath(node.path, path)) ?? null) : null;
+  }
+
+  function navigateWithArrow(event: KeyboardEvent): boolean {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return false;
+    const visible = visibleNodes(tree.entries);
+    if (!visible.length) return true;
+    const current = keyboardNode(event.target, visible);
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const currentIndex = current
+        ? visible.findIndex((node) => samePath(node.path, current.path))
+        : event.key === 'ArrowDown'
+          ? -1
+          : visible.length;
+      const nextIndex = Math.min(
+        visible.length - 1,
+        Math.max(0, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)),
+      );
+      focusNode(visible[nextIndex]);
+      return true;
+    }
+
+    if (!current) return true;
+    focusNode(current);
+    if (event.key === 'ArrowRight') {
+      if (!current.isDirectory) return true;
+      if (!current.expanded) void tree.toggleDirectory(current);
+      else if (current.children[0]) focusNode(current.children[0]);
+      return true;
+    }
+
+    if (current.isDirectory && current.expanded) {
+      void tree.toggleDirectory(current);
+      return true;
+    }
+    const parent = findNode(tree.entries, parentPath(current.path));
+    if (parent?.isDirectory) focusNode(parent);
+    return true;
+  }
+
   function handleExplorerKeydown(event: KeyboardEvent) {
     const target = event.target;
     if (
@@ -243,7 +301,15 @@
       event.preventDefault();
       event.stopPropagation();
       selection.selectAll(tree.entries);
-    } else if (event.key === 'Delete' && selection.paths.length) {
+    } else if (!command && !event.altKey && navigateWithArrow(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+    } else if (event.key === 'Delete') {
+      if (!selection.paths.length) {
+        const focused = keyboardNode(event.target, visibleNodes(tree.entries));
+        if (focused) selection.selectSingle(focused);
+      }
+      if (!selection.paths.length) return;
       event.preventDefault();
       event.stopPropagation();
       void commands.deleteSelected();
@@ -269,7 +335,7 @@
     const request = $workspaceRefreshRequest;
     if (!request || request.id <= handledRefreshRequest) return;
     handledRefreshRequest = request.id;
-    void tree.refreshDirectory(request.path);
+    void tree.refreshDirectory(request.path, true);
   });
 
   $effect(() => {
@@ -331,6 +397,7 @@
       </div>
     </div>
     <div
+      bind:this={explorerTreeElement}
       class="explorer-tree"
       role="tree"
       aria-label="Workspace files"

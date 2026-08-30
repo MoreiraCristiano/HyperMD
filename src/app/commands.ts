@@ -321,9 +321,9 @@ export const shortcutEntries: readonly ShortcutEntry[] = [
   },
   {
     category: 'Image Viewer',
-    label: 'Fit to Window',
+    label: 'Reset Zoom',
     shortcut: 'Ctrl+0',
-    description: 'Fit the image inside the available viewport.',
+    description: 'Restore image zoom to 100%.',
     when: 'Image tab',
   },
 ];

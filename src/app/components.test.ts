@@ -180,16 +180,18 @@ describe('front-end components', () => {
       naturalHeight: { configurable: true, value: 480 },
     });
     await fireEvent.load(image);
-    await fireEvent.click(screen.getByRole('button', { name: '100%' }));
     expect(image).toHaveStyle({ width: '640px', height: '480px' });
     await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(screen.getByText('125%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('125%');
     await fireEvent.keyDown(window, { key: '-', ctrlKey: true });
-    expect(screen.getAllByText('100%').length).toBeGreaterThan(0);
-    await fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
-    expect(screen.getAllByText('Fit').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('100%');
+    await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset zoom to 100%' }));
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('100%');
+    expect(screen.queryByRole('button', { name: 'Fit' })).not.toBeInTheDocument();
     await fireEvent.error(image);
     expect(screen.getByText('Could not load this image.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reset zoom to 100%' })).not.toBeInTheDocument();
   });
 
   it('shows image viewer workspace and missing-file errors', async () => {
@@ -295,19 +297,25 @@ describe('front-end components', () => {
     tauriMocks.stat.mockResolvedValue({ isFile: true });
     render(ImageViewer, { path: '/work/a.png' });
     await waitFor(() => expect(document.querySelector('.image-canvas')).not.toBeNull());
+    const image = document.querySelector('.image-canvas img')!;
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 640 },
+      naturalHeight: { configurable: true, value: 480 },
+    });
+    await fireEvent.load(image);
     const zoomIn = screen.getByRole('button', { name: 'Zoom in' });
     const zoomOut = screen.getByRole('button', { name: 'Zoom out' });
     for (let index = 0; index < 15; index += 1) await fireEvent.click(zoomIn);
-    expect(screen.getByText('500%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('500%');
     for (let index = 0; index < 20; index += 1) await fireEvent.click(zoomOut);
-    expect(screen.getByText('10%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('10%');
     await fireEvent.keyDown(window, { key: '0', metaKey: true });
-    expect(screen.getAllByText('Fit').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('100%');
     const harmless = new KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true });
     window.dispatchEvent(harmless);
     expect(harmless.defaultPrevented).toBe(false);
     await fireEvent.keyDown(window, { key: '=', ctrlKey: true });
-    expect(screen.getByText('125%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('125%');
   });
 
   it('reports non-Error image loader failures and ignores unrelated commands', async () => {
