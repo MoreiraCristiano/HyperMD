@@ -1,6 +1,6 @@
 import { EditorState } from '@tiptap/pm/state';
 import { get } from 'svelte/store';
-import { chooseSavePath, fileName, readMarkdown, writeMarkdown } from '@/platform/tauri/files';
+import { fileName } from '@/platform/tauri/files';
 import { dialogService } from '@/shared/ui/dialogs';
 import { isImagePath } from '@/shared/utils/imageTypes';
 import { isInsideWorkspace, sidebarState } from '@/features/workspace';
@@ -18,7 +18,6 @@ import {
   type ImageReferenceRenamePlan,
   type ImageReferenceWriteResult,
 } from './documentImages';
-import { validateWorkspaceImagePath } from './images/localImage';
 import {
   activeMarkdownTab,
   flushDocumentSession,
@@ -26,6 +25,7 @@ import {
   restoreDocumentSession,
 } from './documentSession';
 import { AutoSaveCoordinator, type AutoSaveService } from './autoSaveCoordinator';
+import { DocumentPersistence, type DocumentPersistenceService } from './documentPersistence';
 
 type DirtyAction = 'save' | 'discard' | 'cancel';
 
@@ -43,19 +43,27 @@ function pathMatches(path: string | null, target: string, directory: boolean): b
 
 export class DocumentManager {
   private editor: EditorApi | null = null;
-  private saveQueues = new Map<string, Promise<void>>();
-  private activeSavePaths = new Map<string, string>();
   private untitledIndex = 1;
   private readonly autoSave: AutoSaveService;
+  private readonly persistence: DocumentPersistenceService;
   private readonly imageService: DocumentImageService;
 
-  constructor(autoSave?: AutoSaveService) {
+  constructor(autoSave?: AutoSaveService, persistence?: DocumentPersistenceService) {
     this.autoSave =
       autoSave ??
       new AutoSaveCoordinator({
         save: (id) => this.save(id),
         persistSession: () => this.persistNow(),
         flushSession: () => this.flushNow(),
+      });
+    this.persistence =
+      persistence ??
+      new DocumentPersistence({
+        getEditor: () => this.editor,
+        getTabs: () => get(tabsState),
+        publish: (snapshot) => this.publish(snapshot),
+        activate: (id) => this.activate(id),
+        scheduleAutoSave: (tab) => this.autoSave.schedule(tab),
       });
     this.imageService = new DocumentImageService({
       getEditor: () => this.editor,
@@ -140,52 +148,7 @@ export class DocumentManager {
   }
 
   async open(path: string): Promise<boolean> {
-    if (!this.editor) return false;
-    const existing = get(tabsState).tabs.find(
-      (tab) => tab.path && comparablePath(tab.path) === comparablePath(path),
-    );
-    if (existing) {
-      this.activate(existing.id);
-      return true;
-    }
-
-    if (isImagePath(path)) return this.openImage(path);
-    if (!path.toLowerCase().endsWith('.md')) throw new Error('Unsupported file type.');
-
-    const markdown = await readMarkdown(path);
-    const state = this.editor.createState(markdown);
-    const tab: EditorTab = {
-      id: crypto.randomUUID(),
-      path,
-      name: fileName(path),
-      type: 'markdown',
-      pinned: false,
-      state,
-      savedDoc: state.doc,
-      dirty: false,
-      missing: false,
-    };
-    const snapshot = get(tabsState);
-    this.publish({ ...snapshot, tabs: [...snapshot.tabs, tab], activeId: tab.id });
-    this.editor.setState(state);
-    this.editor.focus();
-    return true;
-  }
-
-  private async openImage(path: string): Promise<boolean> {
-    const validatedPath = await validateWorkspaceImagePath(path);
-    const tab: EditorTab = {
-      id: crypto.randomUUID(),
-      path: validatedPath,
-      name: fileName(validatedPath),
-      type: 'image',
-      pinned: false,
-      dirty: false,
-      missing: false,
-    };
-    const snapshot = get(tabsState);
-    this.publish({ ...snapshot, tabs: [...snapshot.tabs, tab], activeId: tab.id });
-    return true;
+    return this.persistence.open(path);
   }
 
   activate(id: string): void {
@@ -257,64 +220,12 @@ export class DocumentManager {
   }
 
   async save(id = get(tabsState).activeId, saveAs = false): Promise<boolean> {
-    if (!this.editor || !id) return false;
-    const previous = this.saveQueues.get(id) ?? Promise.resolve();
-    const operation = previous.then(() => this.performSave(id, saveAs));
-    const tail = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.saveQueues.set(id, tail);
-    try {
-      return await operation;
-    } finally {
-      if (this.saveQueues.get(id) === tail) this.saveQueues.delete(id);
-    }
-  }
-
-  private async performSave(id: string, saveAs: boolean): Promise<boolean> {
-    if (!this.editor) return false;
-    const snapshot = get(tabsState);
-    const tab = snapshot.tabs.find((candidate) => candidate.id === id);
-    if (!tab) return false;
-    if (!isMarkdownTab(tab)) return true;
-    if (snapshot.activeId === id) tab.state = this.editor.getState();
-
-    let path = tab.path;
-    if (!path || saveAs || tab.missing) path = await chooseSavePath(path ?? tab.name);
-    if (!path) return false;
-    const savedState = tab.state;
-    const markdown = this.editor.serializeState(savedState);
-    let releasePath = this.reserveSavePath(id, path);
-    try {
-      try {
-        await writeMarkdown(path, markdown);
-      } catch (cause) {
-        releasePath();
-        releasePath = () => {};
-        if (saveAs || !tab.path) throw cause;
-        const authorizedPath = await chooseSavePath(path);
-        if (!authorizedPath) return false;
-        path = authorizedPath;
-        releasePath = this.reserveSavePath(id, path);
-        await writeMarkdown(path, markdown);
-      }
-      tab.path = path;
-      tab.name = fileName(path);
-      tab.savedDoc = savedState.doc;
-      tab.dirty = !tab.state.doc.eq(tab.savedDoc);
-      tab.missing = false;
-      this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
-      this.autoSave.schedule(tab);
-      return true;
-    } finally {
-      releasePath();
-    }
+    return this.persistence.save(id, saveAs);
   }
 
   async close(id = get(tabsState).activeId): Promise<boolean> {
     if (!id) return true;
-    await this.waitForSave(id);
+    await this.persistence.waitForSave(id);
     const snapshot = get(tabsState);
     const index = snapshot.tabs.findIndex((tab) => tab.id === id);
     if (index === -1) return true;
@@ -346,7 +257,7 @@ export class DocumentManager {
     const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
 
     for (const initialTab of workspaceTabs) {
-      await this.waitForSave(initialTab.id);
+      await this.persistence.waitForSave(initialTab.id);
       const tab = get(tabsState).tabs.find((candidate) => candidate.id === initialTab.id);
       if (!tab || !isMarkdownTab(tab) || !tab.dirty) continue;
       const action = await this.confirmDirty(tab);
@@ -401,7 +312,7 @@ export class DocumentManager {
   async prepareWindowClose(): Promise<boolean> {
     const tabIds = get(tabsState).tabs.map((tab) => tab.id);
     for (const tabId of tabIds) {
-      await this.waitForSave(tabId);
+      await this.persistence.waitForSave(tabId);
       const tab = get(tabsState).tabs.find((candidate) => candidate.id === tabId);
       if (!tab) continue;
       if (!isMarkdownTab(tab) || !tab.dirty) continue;
@@ -571,25 +482,6 @@ export class DocumentManager {
   private publish(snapshot: TabsState): void {
     tabsState.set(snapshot);
     this.autoSave.scheduleSessionPersist();
-  }
-
-  private async waitForSave(id: string): Promise<void> {
-    await this.saveQueues.get(id);
-  }
-
-  private reserveSavePath(id: string, path: string): () => void {
-    const key = comparablePath(path);
-    const duplicate = get(tabsState).tabs.some(
-      (candidate) =>
-        candidate.id !== id && candidate.path !== null && comparablePath(candidate.path) === key,
-    );
-    if (duplicate || this.activeSavePaths.has(key)) {
-      throw new Error('This file is already open in another tab.');
-    }
-    this.activeSavePaths.set(key, id);
-    return () => {
-      if (this.activeSavePaths.get(key) === id) this.activeSavePaths.delete(key);
-    };
   }
 
   private persistNow(): void {
