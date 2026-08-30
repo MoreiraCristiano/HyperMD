@@ -4,7 +4,6 @@ import { chooseSavePath, fileName, readMarkdown, writeMarkdown } from '@/platfor
 import { dialogService } from '@/shared/ui/dialogs';
 import { isImagePath } from '@/shared/utils/imageTypes';
 import { isInsideWorkspace, sidebarState } from '@/features/workspace';
-import { settingsStore } from '@/features/settings';
 import {
   isMarkdownTab,
   tabsState,
@@ -13,13 +12,20 @@ import {
   type TabsState,
 } from './tabs/tabStore';
 import type { EditorApi, EditorCommand, StoredSelection } from './editor/editorTypes';
-import { DocumentImageService } from './documentImages';
+import {
+  DocumentImageService,
+  type ImageReferenceOperationOptions,
+  type ImageReferenceRenamePlan,
+  type ImageReferenceWriteResult,
+} from './documentImages';
 import { validateWorkspaceImagePath } from './images/localImage';
 import {
   activeMarkdownTab,
+  flushDocumentSession,
   persistDocumentSession,
   restoreDocumentSession,
 } from './documentSession';
+import { AutoSaveCoordinator, type AutoSaveService } from './autoSaveCoordinator';
 
 type DirtyAction = 'save' | 'discard' | 'cancel';
 
@@ -37,36 +43,29 @@ function pathMatches(path: string | null, target: string, directory: boolean): b
 
 export class DocumentManager {
   private editor: EditorApi | null = null;
-  private persistTimer: ReturnType<typeof setTimeout> | undefined;
-  private autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private autoSaveEnabled = false;
+  private saveQueues = new Map<string, Promise<void>>();
+  private activeSavePaths = new Map<string, string>();
   private untitledIndex = 1;
-  private unsubscribeSettings: () => void;
-  private readonly imageService = new DocumentImageService({
-    getEditor: () => this.editor,
-    publish: (snapshot) => this.publish(snapshot),
-    scheduleAutoSave: (tab) => this.scheduleAutoSave(tab),
-  });
+  private readonly autoSave: AutoSaveService;
+  private readonly imageService: DocumentImageService;
 
-  constructor() {
-    this.unsubscribeSettings = settingsStore.subscribe((settings) => {
-      const enabled = settings.files.autoSave;
-      const wasEnabled = this.autoSaveEnabled;
-      this.autoSaveEnabled = enabled;
-      if (!enabled) {
-        for (const timer of this.autoSaveTimers.values()) clearTimeout(timer);
-        this.autoSaveTimers.clear();
-      } else if (!wasEnabled) {
-        for (const tab of get(tabsState).tabs) this.scheduleAutoSave(tab);
-      }
+  constructor(autoSave?: AutoSaveService) {
+    this.autoSave =
+      autoSave ??
+      new AutoSaveCoordinator({
+        save: (id) => this.save(id),
+        persistSession: () => this.persistNow(),
+        flushSession: () => this.flushNow(),
+      });
+    this.imageService = new DocumentImageService({
+      getEditor: () => this.editor,
+      publish: (snapshot) => this.publish(snapshot),
+      scheduleAutoSave: (tab) => this.autoSave.schedule(tab),
     });
   }
 
   dispose(): void {
-    clearTimeout(this.persistTimer);
-    for (const timer of this.autoSaveTimers.values()) clearTimeout(timer);
-    this.autoSaveTimers.clear();
-    this.unsubscribeSettings();
+    this.autoSave.dispose();
     this.editor = null;
   }
 
@@ -251,14 +250,30 @@ export class DocumentManager {
     if (docChanged) {
       tab.dirty = !state.doc.eq(tab.savedDoc);
       this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
-      this.scheduleAutoSave(tab);
+      this.autoSave.schedule(tab);
     } else {
-      this.schedulePersist();
+      this.autoSave.scheduleSessionPersist();
     }
   }
 
   async save(id = get(tabsState).activeId, saveAs = false): Promise<boolean> {
     if (!this.editor || !id) return false;
+    const previous = this.saveQueues.get(id) ?? Promise.resolve();
+    const operation = previous.then(() => this.performSave(id, saveAs));
+    const tail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.saveQueues.set(id, tail);
+    try {
+      return await operation;
+    } finally {
+      if (this.saveQueues.get(id) === tail) this.saveQueues.delete(id);
+    }
+  }
+
+  private async performSave(id: string, saveAs: boolean): Promise<boolean> {
+    if (!this.editor) return false;
     const snapshot = get(tabsState);
     const tab = snapshot.tabs.find((candidate) => candidate.id === id);
     if (!tab) return false;
@@ -268,47 +283,38 @@ export class DocumentManager {
     let path = tab.path;
     if (!path || saveAs || tab.missing) path = await chooseSavePath(path ?? tab.name);
     if (!path) return false;
-    const duplicate = snapshot.tabs.find(
-      (candidate) =>
-        candidate.id !== id &&
-        candidate.path &&
-        comparablePath(candidate.path) === comparablePath(path!),
-    );
-    if (duplicate) throw new Error('This file is already open in another tab.');
-
     const savedState = tab.state;
     const markdown = this.editor.serializeState(savedState);
+    let releasePath = this.reserveSavePath(id, path);
     try {
-      await writeMarkdown(path, markdown);
-    } catch (cause) {
-      if (saveAs || !tab.path) throw cause;
-      const authorizedPath = await chooseSavePath(path);
-      if (!authorizedPath) return false;
-      if (
-        snapshot.tabs.some(
-          (candidate) =>
-            candidate.id !== id &&
-            candidate.path &&
-            comparablePath(candidate.path) === comparablePath(authorizedPath),
-        )
-      ) {
-        throw new Error('This file is already open in another tab.');
+      try {
+        await writeMarkdown(path, markdown);
+      } catch (cause) {
+        releasePath();
+        releasePath = () => {};
+        if (saveAs || !tab.path) throw cause;
+        const authorizedPath = await chooseSavePath(path);
+        if (!authorizedPath) return false;
+        path = authorizedPath;
+        releasePath = this.reserveSavePath(id, path);
+        await writeMarkdown(path, markdown);
       }
-      path = authorizedPath;
-      await writeMarkdown(path, markdown);
+      tab.path = path;
+      tab.name = fileName(path);
+      tab.savedDoc = savedState.doc;
+      tab.dirty = !tab.state.doc.eq(tab.savedDoc);
+      tab.missing = false;
+      this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
+      this.autoSave.schedule(tab);
+      return true;
+    } finally {
+      releasePath();
     }
-    tab.path = path;
-    tab.name = fileName(path);
-    tab.savedDoc = savedState.doc;
-    tab.dirty = !tab.state.doc.eq(tab.savedDoc);
-    tab.missing = false;
-    this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
-    this.scheduleAutoSave(tab);
-    return true;
   }
 
   async close(id = get(tabsState).activeId): Promise<boolean> {
     if (!id) return true;
+    await this.waitForSave(id);
     const snapshot = get(tabsState);
     const index = snapshot.tabs.findIndex((tab) => tab.id === id);
     if (index === -1) return true;
@@ -316,7 +322,7 @@ export class DocumentManager {
     const action = isMarkdownTab(tab) ? await this.confirmDirty(tab) : 'discard';
     if (action === 'cancel') return false;
     if (action === 'save' && !(await this.save(tab.id))) return false;
-    this.clearAutoSave(tab.id);
+    this.autoSave.clear(tab.id);
 
     const tabs = snapshot.tabs.filter((candidate) => candidate.id !== id);
     let activeId = snapshot.activeId;
@@ -340,6 +346,7 @@ export class DocumentManager {
     const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
 
     for (const initialTab of workspaceTabs) {
+      await this.waitForSave(initialTab.id);
       const tab = get(tabsState).tabs.find((candidate) => candidate.id === initialTab.id);
       if (!tab || !isMarkdownTab(tab) || !tab.dirty) continue;
       const action = await this.confirmDirty(tab);
@@ -350,7 +357,7 @@ export class DocumentManager {
     const snapshot = get(tabsState);
     if (!snapshot.tabs.some((tab) => workspaceTabIds.has(tab.id))) return true;
     for (const tab of snapshot.tabs) {
-      if (workspaceTabIds.has(tab.id)) this.clearAutoSave(tab.id);
+      if (workspaceTabIds.has(tab.id)) this.autoSave.clear(tab.id);
     }
 
     const tabs = snapshot.tabs.filter((tab) => !workspaceTabIds.has(tab.id));
@@ -392,8 +399,11 @@ export class DocumentManager {
   }
 
   async prepareWindowClose(): Promise<boolean> {
-    const snapshot = get(tabsState);
-    for (const tab of snapshot.tabs) {
+    const tabIds = get(tabsState).tabs.map((tab) => tab.id);
+    for (const tabId of tabIds) {
+      await this.waitForSave(tabId);
+      const tab = get(tabsState).tabs.find((candidate) => candidate.id === tabId);
+      if (!tab) continue;
       if (!isMarkdownTab(tab) || !tab.dirty) continue;
       const action = await this.confirmDirty(tab);
       if (action === 'cancel') return false;
@@ -407,12 +417,16 @@ export class DocumentManager {
         tab.dirty = false;
       }
     }
-    this.persistNow();
+    await this.flushSession();
     return true;
   }
 
   persistSession(): void {
-    this.persistNow();
+    this.autoSave.persistSession();
+  }
+
+  async flushSession(): Promise<void> {
+    await this.autoSave.flushSession();
   }
 
   async execute(command: EditorCommand): Promise<boolean> {
@@ -458,7 +472,7 @@ export class DocumentManager {
     for (const tab of snapshot.tabs) {
       if (pathMatches(tab.path, path, isDirectory)) {
         tab.missing = true;
-        this.clearAutoSave(tab.id);
+        this.autoSave.clear(tab.id);
         changed = true;
       }
     }
@@ -466,18 +480,7 @@ export class DocumentManager {
   }
 
   async renamePath(oldPath: string, newPath: string, isDirectory: boolean): Promise<void> {
-    const snapshot = get(tabsState);
-    let changed = false;
-    for (const tab of snapshot.tabs) {
-      if (!pathMatches(tab.path, oldPath, isDirectory) || !tab.path) continue;
-      const suffix = tab.path.slice(oldPath.length);
-      tab.path = `${newPath}${suffix}`;
-      tab.name = fileName(tab.path);
-      tab.missing = false;
-      this.scheduleAutoSave(tab);
-      changed = true;
-    }
-    if (changed) this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
+    this.renamePathOnly(oldPath, newPath, isDirectory);
     const workspaceRoot = get(sidebarState).workspacePath;
     if (
       workspaceRoot &&
@@ -489,6 +492,49 @@ export class DocumentManager {
     ) {
       await this.imageService.updateWorkspaceImageReferences(workspaceRoot, oldPath, newPath);
     }
+  }
+
+  renamePathOnly(oldPath: string, newPath: string, isDirectory: boolean): void {
+    const snapshot = get(tabsState);
+    let changed = false;
+    for (const tab of snapshot.tabs) {
+      if (!pathMatches(tab.path, oldPath, isDirectory) || !tab.path) continue;
+      const suffix = tab.path.slice(oldPath.length);
+      tab.path = `${newPath}${suffix}`;
+      tab.name = fileName(tab.path);
+      tab.missing = false;
+      this.autoSave.schedule(tab);
+      changed = true;
+    }
+    if (changed) this.publish({ ...snapshot, tabs: [...snapshot.tabs] });
+  }
+
+  planWorkspaceImageRename(
+    workspaceRoot: string,
+    oldImagePath: string,
+    newImagePath: string,
+    options?: ImageReferenceOperationOptions,
+  ): Promise<ImageReferenceRenamePlan> {
+    return this.imageService.planWorkspaceImageReferenceRename(
+      workspaceRoot,
+      oldImagePath,
+      newImagePath,
+      options,
+    );
+  }
+
+  writeWorkspaceImageRename(
+    plan: ImageReferenceRenamePlan,
+    options?: Pick<ImageReferenceOperationOptions, 'onProgress'>,
+  ): Promise<ImageReferenceWriteResult> {
+    return this.imageService.writeWorkspaceImageReferencePlan(plan, options);
+  }
+
+  reconcileWorkspaceImageRename(
+    plan: ImageReferenceRenamePlan,
+    documentsAtDestination: readonly string[],
+  ): Promise<void> {
+    return this.imageService.reconcileWorkspaceImageReferencePlan(plan, documentsAtDestination);
   }
 
   private async confirmDirty(tab: MarkdownTab): Promise<DirtyAction> {
@@ -524,41 +570,36 @@ export class DocumentManager {
 
   private publish(snapshot: TabsState): void {
     tabsState.set(snapshot);
-    this.schedulePersist();
+    this.autoSave.scheduleSessionPersist();
   }
 
-  private clearAutoSave(id: string): void {
-    const timer = this.autoSaveTimers.get(id);
-    if (timer) clearTimeout(timer);
-    this.autoSaveTimers.delete(id);
+  private async waitForSave(id: string): Promise<void> {
+    await this.saveQueues.get(id);
   }
 
-  private scheduleAutoSave(tab: EditorTab): void {
-    this.clearAutoSave(tab.id);
-    if (!this.autoSaveEnabled || !isMarkdownTab(tab) || !tab.dirty || !tab.path || tab.missing) {
-      return;
-    }
-    this.autoSaveTimers.set(
-      tab.id,
-      setTimeout(() => {
-        this.autoSaveTimers.delete(tab.id);
-        const current = get(tabsState).tabs.find((candidate) => candidate.id === tab.id);
-        if (!current || !isMarkdownTab(current) || !current.dirty || !current.path) return;
-        void this.save(current.id).catch((error) =>
-          console.warn(`Auto Save failed for ${current.name}.`, error),
-        );
-      }, 1000),
+  private reserveSavePath(id: string, path: string): () => void {
+    const key = comparablePath(path);
+    const duplicate = get(tabsState).tabs.some(
+      (candidate) =>
+        candidate.id !== id && candidate.path !== null && comparablePath(candidate.path) === key,
     );
-  }
-
-  private schedulePersist(): void {
-    clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => this.persistNow(), 800);
+    if (duplicate || this.activeSavePaths.has(key)) {
+      throw new Error('This file is already open in another tab.');
+    }
+    this.activeSavePaths.set(key, id);
+    return () => {
+      if (this.activeSavePaths.get(key) === id) this.activeSavePaths.delete(key);
+    };
   }
 
   private persistNow(): void {
     if (!this.editor) return;
     persistDocumentSession(this.editor, get(tabsState));
+  }
+
+  private async flushNow(): Promise<void> {
+    if (!this.editor) return;
+    await flushDocumentSession(this.editor, get(tabsState));
   }
 }
 
