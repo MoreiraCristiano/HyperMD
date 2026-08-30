@@ -1,16 +1,9 @@
-import { EditorState } from '@tiptap/pm/state';
+import type { EditorState } from '@tiptap/pm/state';
 import { get } from 'svelte/store';
 import { fileName } from '@/platform/tauri/files';
-import { dialogService } from '@/shared/ui/dialogs';
 import { isImagePath } from '@/shared/utils/imageTypes';
 import { isInsideWorkspace, sidebarState } from '@/features/workspace';
-import {
-  isMarkdownTab,
-  tabsState,
-  type EditorTab,
-  type MarkdownTab,
-  type TabsState,
-} from './tabs/tabStore';
+import { isMarkdownTab, tabsState, type EditorTab, type TabsState } from './tabs/tabStore';
 import type { EditorApi, EditorCommand, StoredSelection } from './editor/editorTypes';
 import {
   DocumentImageService,
@@ -26,8 +19,7 @@ import {
 } from './documentSession';
 import { AutoSaveCoordinator, type AutoSaveService } from './autoSaveCoordinator';
 import { DocumentPersistence, type DocumentPersistenceService } from './documentPersistence';
-
-type DirtyAction = 'save' | 'discard' | 'cancel';
+import { DirtyDocumentGuard, type DirtyDocumentGuardService } from './dirtyDocumentGuard';
 
 function comparablePath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
@@ -46,9 +38,14 @@ export class DocumentManager {
   private untitledIndex = 1;
   private readonly autoSave: AutoSaveService;
   private readonly persistence: DocumentPersistenceService;
+  private readonly dirtyGuard: DirtyDocumentGuardService;
   private readonly imageService: DocumentImageService;
 
-  constructor(autoSave?: AutoSaveService, persistence?: DocumentPersistenceService) {
+  constructor(
+    autoSave?: AutoSaveService,
+    persistence?: DocumentPersistenceService,
+    dirtyGuard?: DirtyDocumentGuardService,
+  ) {
     this.autoSave =
       autoSave ??
       new AutoSaveCoordinator({
@@ -64,6 +61,17 @@ export class DocumentManager {
         publish: (snapshot) => this.publish(snapshot),
         activate: (id) => this.activate(id),
         scheduleAutoSave: (tab) => this.autoSave.schedule(tab),
+      });
+    this.dirtyGuard =
+      dirtyGuard ??
+      new DirtyDocumentGuard({
+        getEditor: () => this.editor,
+        getTabs: () => get(tabsState),
+        publish: (snapshot) => this.publish(snapshot),
+        save: (id) => this.save(id),
+        waitForSave: (id) => this.persistence.waitForSave(id),
+        clearAutoSave: (id) => this.autoSave.clear(id),
+        flushSession: () => this.flushSession(),
       });
     this.imageService = new DocumentImageService({
       getEditor: () => this.editor,
@@ -224,76 +232,11 @@ export class DocumentManager {
   }
 
   async close(id = get(tabsState).activeId): Promise<boolean> {
-    if (!id) return true;
-    await this.persistence.waitForSave(id);
-    const snapshot = get(tabsState);
-    const index = snapshot.tabs.findIndex((tab) => tab.id === id);
-    if (index === -1) return true;
-    const tab = snapshot.tabs[index];
-    const action = isMarkdownTab(tab) ? await this.confirmDirty(tab) : 'discard';
-    if (action === 'cancel') return false;
-    if (action === 'save' && !(await this.save(tab.id))) return false;
-    this.autoSave.clear(tab.id);
-
-    const tabs = snapshot.tabs.filter((candidate) => candidate.id !== id);
-    let activeId = snapshot.activeId;
-    if (activeId === id) activeId = tabs[Math.min(index, tabs.length - 1)]?.id ?? null;
-    this.publish({ ...snapshot, tabs, activeId });
-    if (activeId && this.editor) {
-      const active = tabs.find((candidate) => candidate.id === activeId)!;
-      if (isMarkdownTab(active)) {
-        this.editor.setState(active.state);
-        this.editor.focus();
-      }
-    } else if (this.editor) {
-      this.editor.setState(this.editor.createState(''));
-    }
-    return true;
+    return this.dirtyGuard.close(id);
   }
 
   async closeWorkspaceTabs(workspacePath: string): Promise<boolean> {
-    const initial = get(tabsState);
-    const workspaceTabs = initial.tabs.filter((tab) => pathMatches(tab.path, workspacePath, true));
-    const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
-
-    for (const initialTab of workspaceTabs) {
-      await this.persistence.waitForSave(initialTab.id);
-      const tab = get(tabsState).tabs.find((candidate) => candidate.id === initialTab.id);
-      if (!tab || !isMarkdownTab(tab) || !tab.dirty) continue;
-      const action = await this.confirmDirty(tab);
-      if (action === 'cancel') return false;
-      if (action === 'save' && !(await this.save(tab.id))) return false;
-    }
-
-    const snapshot = get(tabsState);
-    if (!snapshot.tabs.some((tab) => workspaceTabIds.has(tab.id))) return true;
-    for (const tab of snapshot.tabs) {
-      if (workspaceTabIds.has(tab.id)) this.autoSave.clear(tab.id);
-    }
-
-    const tabs = snapshot.tabs.filter((tab) => !workspaceTabIds.has(tab.id));
-    let activeId = snapshot.activeId;
-    if (activeId && workspaceTabIds.has(activeId)) {
-      const activeIndex = snapshot.tabs.findIndex((tab) => tab.id === activeId);
-      const nextTab = snapshot.tabs
-        .slice(activeIndex + 1)
-        .find((tab) => !workspaceTabIds.has(tab.id));
-      const previousTab = snapshot.tabs
-        .slice(0, activeIndex)
-        .reverse()
-        .find((tab) => !workspaceTabIds.has(tab.id));
-      activeId = nextTab?.id ?? previousTab?.id ?? null;
-    }
-
-    this.publish({ ...snapshot, tabs, activeId });
-    const active = tabs.find((tab) => tab.id === activeId);
-    if (active && this.editor && isMarkdownTab(active)) {
-      this.editor.setState(active.state);
-      this.editor.focus();
-    } else if (!active && this.editor) {
-      this.editor.setState(this.editor.createState(''));
-    }
-    return true;
+    return this.dirtyGuard.closeWorkspaceTabs(workspacePath);
   }
 
   activateRelative(offset: number): void {
@@ -310,26 +253,7 @@ export class DocumentManager {
   }
 
   async prepareWindowClose(): Promise<boolean> {
-    const tabIds = get(tabsState).tabs.map((tab) => tab.id);
-    for (const tabId of tabIds) {
-      await this.persistence.waitForSave(tabId);
-      const tab = get(tabsState).tabs.find((candidate) => candidate.id === tabId);
-      if (!tab) continue;
-      if (!isMarkdownTab(tab) || !tab.dirty) continue;
-      const action = await this.confirmDirty(tab);
-      if (action === 'cancel') return false;
-      if (action === 'save' && !(await this.save(tab.id))) return false;
-      if (action === 'discard') {
-        tab.state = EditorState.create({
-          schema: tab.state.schema,
-          doc: tab.savedDoc,
-          plugins: tab.state.plugins,
-        });
-        tab.dirty = false;
-      }
-    }
-    await this.flushSession();
-    return true;
+    return this.dirtyGuard.prepareWindowClose();
   }
 
   persistSession(): void {
@@ -446,23 +370,6 @@ export class DocumentManager {
     documentsAtDestination: readonly string[],
   ): Promise<void> {
     return this.imageService.reconcileWorkspaceImageReferencePlan(plan, documentsAtDestination);
-  }
-
-  private async confirmDirty(tab: MarkdownTab): Promise<DirtyAction> {
-    if (!tab.dirty) return 'discard';
-    const result = await dialogService.choose({
-      title: 'Unsaved Changes',
-      message: `Do you want to save the changes to “${tab.name}”?`,
-      tone: 'warning',
-      actions: [
-        { id: 'cancel', label: 'Cancel', variant: 'secondary' },
-        { id: 'discard', label: "Don't Save", variant: 'secondary' },
-        { id: 'save', label: 'Save', variant: 'primary' },
-      ],
-    });
-    if (result === 'save') return 'save';
-    if (result === 'discard') return 'discard';
-    return 'cancel';
   }
 
   private restoreSession(): boolean {
