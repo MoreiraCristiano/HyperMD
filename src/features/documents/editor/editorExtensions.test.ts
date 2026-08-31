@@ -420,6 +420,58 @@ describe('editor extensions', () => {
     }
   });
 
+  it('keeps indented fenced code blocks inside ordered list items', () => {
+    const markdown = [
+      '1. Install and config openssh',
+      '    ',
+      '    ```bash',
+      '    sudo apt update && sudo apt install openssh-server -y',
+      '    ',
+      '    # Add port',
+      '    sudo vi /etc/ssh/sshd_config',
+      '    ',
+      '    sudo service ssh restart',
+      '    ```',
+      '    ',
+      '2. Configure windows firewall',
+      '    ',
+      '    ```bash',
+      '    New-NetFirewallHyperVRule -DisplayName "Allow WSL SSH"',
+      '    ',
+      '    ```',
+      '    ',
+      '3. .wslconfig file',
+      '    ',
+      '    ```powershell',
+      '    [wsl2]',
+      '    networkingMode=mirrored',
+      '    ```',
+    ].join('\n');
+    const instance = markdownEditor(markdown);
+    const list = instance.state.doc.firstChild!;
+
+    expect(list.type.name).toBe('orderedList');
+    expect(list.childCount).toBe(3);
+    expect(Array.from({ length: 3 }, (_, index) => list.child(index).child(1).type.name)).toEqual([
+      'codeBlock',
+      'codeBlock',
+      'codeBlock',
+    ]);
+    expect(
+      Array.from({ length: 3 }, (_, index) => list.child(index).child(1).attrs.language),
+    ).toEqual(['bash', 'bash', 'powershell']);
+    expect(
+      list
+        .child(0)
+        .child(1)
+        .textContent.startsWith('sudo apt update && sudo apt install openssh-server -y'),
+    ).toBe(true);
+
+    const serialized = instance.markdown!.serialize(instance.getJSON());
+    const restored = markdownEditor(serialized);
+    expect(restored.getJSON()).toEqual(instance.getJSON());
+  });
+
   it('renders and refreshes Markdown image node views', async () => {
     const instance = editor('<img src="https://example.com/a.png" alt="A" title="Title">', [
       StarterKit,

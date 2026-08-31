@@ -52,9 +52,10 @@ function repairOrderedCodeItems(token: any, lexer: MarkdownLexer): any {
     const marker = item.raw?.match(/^(\s*)\d+[.)]\s+/);
     if (marker && /(?:```|~~~)/.test(item.raw)) {
       const lines = item.raw.trimEnd().split('\n');
-      const contentIndent = marker[0].length;
+      const fencedLine = lines.slice(1).find((line: string) => /^\s*(?:```|~~~)/.test(line));
+      const contentIndent = fencedLine?.match(/^\s*/)?.[0].length ?? marker[0].length;
       const body = [
-        lines[0].slice(contentIndent),
+        lines[0].slice(marker[0].length),
         ...lines
           .slice(1)
           .map((line: string) =>
