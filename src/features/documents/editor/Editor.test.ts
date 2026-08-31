@@ -189,6 +189,69 @@ describe('Editor', () => {
     expect(textPaste.defaultPrevented).toBe(true);
   });
 
+  it('keeps inline clipboard content inside the current heading', async () => {
+    const { api, container } = await mountEditor();
+    api.setState(api.createState('# Heading', { anchor: 999, head: 999 }));
+    tauriMocks.clipboardReadText.mockResolvedValue(' **continued**');
+
+    expect(await api.execute('paste')).toBe(true);
+    expect(api.getState().doc.firstChild?.type.name).toBe('heading');
+    expect(api.serializeState(api.getState())).toBe('# Heading **continued**\n\n');
+
+    api.setState(api.createState('# Heading', { anchor: 999, head: 999 }));
+    const textPaste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(textPaste, 'clipboardData', {
+      value: { items: [], getData: (type: string) => (type === 'text/plain' ? ' continued' : '') },
+    });
+
+    container.querySelector('.ProseMirror')!.dispatchEvent(textPaste);
+
+    expect(textPaste.defaultPrevented).toBe(true);
+    expect(api.getState().doc.firstChild?.type.name).toBe('heading');
+    expect(api.serializeState(api.getState())).toBe('# Heading continued\n\n');
+  });
+
+  it('keeps block Markdown structured when pasted after a heading', async () => {
+    const { api } = await mountEditor();
+    api.setState(api.createState('# Heading', { anchor: 999, head: 999 }));
+    tauriMocks.clipboardReadText.mockResolvedValue('## Next');
+
+    expect(await api.execute('paste')).toBe(true);
+    expect(api.getState().doc.child(0).type.name).toBe('heading');
+    expect(api.getState().doc.child(1).type.name).toBe('heading');
+    expect(api.serializeState(api.getState())).toBe('# Heading\n\n## Next\n\n');
+  });
+
+  it('keeps fenced code blocks when pasting ordered Markdown lists', async () => {
+    const markdown = [
+      '1. Linux',
+      '    ',
+      '    ```bash',
+      '    sudo apt update',
+      '    ```',
+      '2. Windows',
+      '    ',
+      '    ```powershell',
+      '    Get-NetFirewallRule',
+      '    ```',
+    ].join('\n');
+    const { api, container } = await mountEditor();
+    tauriMocks.clipboardReadText.mockResolvedValue(markdown);
+
+    expect(await api.execute('paste')).toBe(true);
+    expect(container.querySelectorAll('.hypermd-code-block')).toHaveLength(2);
+
+    api.setState(api.createState(''));
+    const textPaste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(textPaste, 'clipboardData', {
+      value: { items: [], getData: (type: string) => (type === 'text/plain' ? markdown : '') },
+    });
+    container.querySelector('.ProseMirror')!.dispatchEvent(textPaste);
+
+    expect(textPaste.defaultPrevented).toBe(true);
+    expect(container.querySelectorAll('.hypermd-code-block')).toHaveLength(2);
+  });
+
   it('drops workspace images at the pointer position', async () => {
     const onWorkspaceImageDrop = vi.fn().mockResolvedValue(undefined);
     const { api, container } = await mountEditor(vi.fn(), onWorkspaceImageDrop);

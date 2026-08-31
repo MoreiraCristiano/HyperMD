@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { readText, writeText } from '@/platform/tauri/clipboard';
-  import { Editor } from '@tiptap/core';
+  import { Editor, type Content } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
   import { EditorState, Selection, TextSelection } from '@tiptap/pm/state';
   import { MarkdownSupport } from './markdown';
@@ -56,6 +56,15 @@
     'paste',
     'selectAll',
   ]);
+
+  function clipboardContent(editor: Editor, markdown: string): Content {
+    const parsed = editor.markdown?.parse(markdown);
+    const blocks = parsed?.content;
+    if (blocks?.length === 1 && blocks[0].type === 'paragraph') {
+      return blocks[0].content ?? [];
+    }
+    return parsed ?? markdown;
+  }
 
   function editorContextItems(): readonly ContextMenuItem[] {
     const editor = editorInstance;
@@ -142,7 +151,7 @@
     if (command === 'paste') {
       const text = await readText();
       if (!text) return false;
-      return editor.chain().focus().insertContent(text, { contentType: 'markdown' }).run();
+      return editor.chain().focus().insertContent(clipboardContent(editor, text)).run();
     }
 
     const { from, to } = editor.state.selection;
@@ -310,8 +319,9 @@
           const markdown = clipboard.getData('text/plain');
           if (!markdown) return false;
           try {
+            const currentEditor = editorInstance;
             const inserted =
-              editorInstance?.commands.insertContent(markdown, { contentType: 'markdown' }) ??
+              currentEditor?.commands.insertContent(clipboardContent(currentEditor, markdown)) ??
               false;
             if (inserted) event.preventDefault();
             return inserted;
